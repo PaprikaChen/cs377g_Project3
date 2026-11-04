@@ -4,7 +4,7 @@ function bot(S, seat, rnd, priv) {
   switch (S.phase) {
     case 'pick': return { k, loc: rnd() < 0.5 ? 'city' : 'country' };
     case 'event': return { k, choice: S.event.type === 'shady' ? (rnd() < .5 ? 'accept' : 'decline') : (rnd() < .5 ? 'hold' : 'release') };
-    case 'invest': return { k, tables: Math.floor(rnd() * 3), hire: Math.floor(rnd() * 2), fire: 0, loan: rnd() < 0.1 };
+    case 'invest': return { k, tables: Math.floor(rnd() * 3), loan: rnd() < 0.1 };
     case 'market': return { k, n: rnd() < 0.2 ? 0 : 1 + Math.floor(rnd() * 3) };
     case 'commit': {
       const c = { selfReal: Math.floor(rnd() * 2), selfBlank: Math.floor(rnd() * 2), rivalReal: Math.floor(rnd() * 3), rivalBlank: Math.floor(rnd() * 2) };
@@ -12,7 +12,7 @@ function bot(S, seat, rnd, priv) {
       priv[seat] = { ...c, salt };
       return { k, h: E.adHash(c, salt), nSelf: c.selfReal + c.selfBlank, nRival: c.rivalReal + c.rivalBlank };
     }
-    case 'respond': return { k, temp: Math.floor(rnd() * 2), rush: Math.floor(rnd() * 3) };
+    case 'respond': return { k, rush: Math.floor(rnd() * 3) };
     case 'reveal': return { k, ...(rnd() < 0.03 ? { ...priv[seat], selfReal: 3 } : priv[seat]) };
     case 'voucher': return { k, n: Math.floor(rnd() * 3) };
     case 'report': return { k };

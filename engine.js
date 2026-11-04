@@ -1,13 +1,13 @@
 // ===== Rules engine: replays both players' action logs into the game state =====
 const CFG = {
-  rounds: 5, startCash: 100, wage: 4, startStaff: 2, startStars: 3,
+  rounds: 5, startCash: 100, startStars: 3,
   // price = 每桌收入（餐费含小费，固定）
   // ⚠ 标“待定”的数字是占位值，等小组定稿
   loc: {
     country: { name: '乡村店', tag: '$$', open: 20, rent: 5, tables: 6, price: 8, free: 2 },
     city:    { name: '城市店', tag: '$$$', open: 35, rent: 12, tables: 4, price: 12, free: 0 }
   },
-  baseDemand: 6, perStaff: 3, tableCost: 6, maxTables: 14, maxStaff: 6,
+  baseDemand: 6, tableCost: 6, maxTables: 14,
   // 广告牌（价格待定）：每天可以买任意张，背面朝上放在自己或对手店前
   //   real  真广告牌的价格，翻开后一定带来 customers 位客人
   //   blank 空牌的价格，翻开后什么也没有，只用来虚张声势
@@ -17,8 +17,8 @@ const CFG = {
   //                   每低于 3 星一颗，有 perStar 位基础客人各按 loseChance 的概率不来
   rep: { perStar: 2, chance: 0.5, loseChance: 0.5 },
   // 翻牌前的临时扩容（价格待定，只在当天有效）
-  //   tempStaff 临时帮工，每人能多服务 perStaff 位客人；rushIngr 紧急补货，每份食材的价格
-  respond: { tempStaff: 6, tempStaffMax: 3, rushIngr: 3, rushIngrMax: 8 },
+  //   rushIngr 紧急补货，每份食材的价格；rushIngrMax 每天最多补几份
+  respond: { rushIngr: 3, rushIngrMax: 8 },
   market: { stock: 24, tiers: [[8, 1], [16, 2], [24, 3]], maxPerTurn: 3 },
   voucher: 3,
   // 贷款（暂时关闭）：enabled 改成 true 就恢复——投资时可以主动贷款，付不起开支时自动贷款
@@ -69,8 +69,8 @@ function maxAffordable(sold, cash, cap) {
 const intIn = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v) || 0)));
 
 function newPlayer() {
-  return { loc: null, cash: CFG.startCash, stars: CFG.startStars, tables: 0, staff: CFG.startStaff,
-    ingr: 0, temp: 0, loan: false, shadyFrom: null, bankrupt: false, held: 0, ledger: [], history: [] };
+  return { loc: null, cash: CFG.startCash, stars: CFG.startStars, tables: 0,
+    ingr: 0, loan: false, shadyFrom: null, bankrupt: false, held: 0, ledger: [], history: [] };
 }
 function money(p, label, amt) { p.cash = round2(p.cash + amt); p.ledger.push({ label, amt: round2(amt) }); }
 function note(p, label) { p.ledger.push({ label, amt: null }); }
@@ -86,8 +86,8 @@ function expectedDemand(p, realCards = 0, unknownCards = 0) {
     max: CFG.baseDemand + (d > 0 ? d * per : 0) + (realCards + unknownCards) * CFG.ad.customers };
 }
 function capacityOf(p) {
-  const t = Math.max(0, p.tables - p.held), s = (p.staff + p.temp) * CFG.perStaff, i = p.ingr;
-  return { tables: t, staff: s, ingr: i, cap: Math.min(t, s, i) };
+  const t = Math.max(0, p.tables - p.held), i = p.ingr;
+  return { tables: t, ingr: i, cap: Math.min(t, i) };
 }
 
 function init(seed) {
@@ -108,9 +108,8 @@ function startRound(S) {
   S.round++;
   for (const s of SEATS) {
     const p = S.players[s], L = CFG.loc[p.loc];
-    p.ledger = []; p.held = 0; p.temp = 0;
+    p.ledger = []; p.held = 0;
     money(p, '房租', -L.rent);
-    money(p, `工资（${p.staff} 名员工）`, -p.staff * CFG.wage);
     p.ingr = L.free;
     if (L.free) note(p, `本地农场免费食材 ${L.free} 份`);
     if (p.cash < 0 && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, '付不起开支，被迫贷款', CFG.loan.amount); }
@@ -175,14 +174,14 @@ function runService(S) {
     }
     const c = capacityOf(p);
     const served = Math.min(demand, c.cap), turned = demand - served;
-    const limits = demand > c.cap ? ['tables', 'staff', 'ingr'].filter(k => c[k] === c.cap) : [];
+    const limits = demand > c.cap ? ['tables', 'ingr'].filter(k => c[k] === c.cap) : [];
     steps.push({ k: 'seat', served, cap: c.cap, limits });
     if (turned) steps.push({ k: 'turned', n: turned });
     const meals = served * L.price;
     if (served) money(p, `营业收入（${served} 桌 × $${L.price}）`, meals);
     steps.push({ k: 'sum', meals });
     S.service[s] = { base, repGain, repLoss, adsSelf, adsRival, adSelfIn, adRivalIn, demand, ...c, served, turned,
-      limits, noshow, vouchers: 0, meals, cards: { mine, theirs }, temp: p.temp, steps };
+      limits, noshow, vouchers: 0, meals, cards: { mine, theirs }, steps };
   }
   const needV = SEATS.some(s => S.service[s].turned > 0 && S.players[s].cash >= CFG.voucher);
   if (needV) S.phase = 'voucher'; else review(S);
@@ -283,11 +282,6 @@ function apply(S, got) {
         const room = CFG.maxTables - p.tables;
         const t = Math.min(intIn(a.tables, 0, room), Math.floor(Math.max(0, p.cash) / CFG.tableCost));
         if (t) { money(p, `新增 ${t} 张桌子`, -t * CFG.tableCost); p.tables += t; }
-        const hire = intIn(a.hire, 0, CFG.maxStaff), fire = intIn(a.fire, 0, CFG.maxStaff);
-        const ns = Math.max(1, Math.min(CFG.maxStaff, p.staff + hire - fire));
-        if (ns > p.staff) note(p, `雇用 ${ns - p.staff} 名员工（下回合起付工资）`);
-        if (ns < p.staff) note(p, `解雇 ${p.staff - ns} 名员工`);
-        p.staff = ns;
       }
       startMarket(S); break;
     }
@@ -321,8 +315,6 @@ function apply(S, got) {
       const R = CFG.respond;
       for (const s of SEATS) {
         const p = S.players[s], a = got[s];
-        const staff = Math.min(intIn(a.temp, 0, R.tempStaffMax), Math.floor(Math.max(0, p.cash) / R.tempStaff));
-        if (staff) { money(p, `临时帮工 ${staff} 人`, -staff * R.tempStaff); p.temp = staff; }
         const rush = Math.min(intIn(a.rush, 0, R.rushIngrMax), Math.floor(Math.max(0, p.cash) / R.rushIngr));
         if (rush) { money(p, `紧急补货 ${rush} 份`, -rush * R.rushIngr); p.ingr += rush; }
       }

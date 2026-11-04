@@ -311,11 +311,10 @@ function restHTML(s) {
     </div>
     ${L && live ? `<div class="capline">
       <div class="res ${lim('tables')}"><span class="label">桌子</span><b>${c.tables}</b>${p.held ? `<span class="muted">另 ${p.held} 张保留</span>` : ''}</div>
-      <div class="res ${lim('staff')}"><span class="label">员工 ×3</span><b>${c.staff}</b><span class="muted">${p.staff} 人${p.temp ? ` + 临时 ${p.temp}` : ''}</span></div>
       <div class="res ${lim('ingr')}"><span class="label">食材</span><b>${c.ingr}</b></div>
     </div>
     <div class="forecast"><span>广告前预计 约 <b class="mono">${ex(demand)}</b> 人 <span class="muted">（${E.min}–${E.max}）</span></span><span>今日产能 <b class="mono">${c.cap}</b> 人</span></div>` : ''}
-    ${L && !live ? `<div class="forecast"><span>桌子 <b class="mono">${p.tables}</b> 张</span><span>员工 <b class="mono">${p.staff}</b> 人</span></div>` : ''}
+    ${L && !live ? `<div class="forecast"><span>桌子 <b class="mono">${p.tables}</b> 张</span></div>` : ''}
     ${['respond', 'reveal'].includes(S.phase) ? `<div class="forecast"><span>店门口的背面牌</span>${frontHTML(s, viewer())}</div>` : ''}
     ${flags.length ? `<div class="flags">${flags.join('')}</div>` : ''}
   </article>`;
@@ -354,7 +353,7 @@ function actionHTML() {
         <dl><dt>开店费用</dt><dd>$${L.open}</dd><dt>每天房租</dt><dd>$${L.rent}</dd><dt>初始桌子</dt><dd>${L.tables} 张</dd>
         <dt>每桌收入</dt><dd>$${L.price}</dd><dt>每天免费食材</dt><dd>${L.free} 份</dd></dl></button>`; };
       return head('选择餐厅', `${seatTag(s)} · 起始资金 $${CFG.startCash}`) +
-        `<p class="muted">两家店每天固定有 ${CFG.baseDemand} 位基础客人，声誉和广告牌带来的客人要看运气。每人开局有 ${CFG.startStaff} 名员工、3 星声誉。对手看不到你的选择，直到双方都选好。</p><div class="picks">${card('country')}${card('city')}</div>`;
+        `<p class="muted">两家店每天固定有 ${CFG.baseDemand} 位基础客人，声誉和广告牌带来的客人要看运气。每人开局 3 星声誉。对手看不到你的选择，直到双方都选好。</p><div class="picks">${card('country')}${card('city')}</div>`;
     }
     case 'event': {
       const e = S.event;
@@ -366,20 +365,16 @@ function actionHTML() {
     }
     case 'invest': {
       if (!k) return head('投资') + waitHTML(s);
-      const f = F({ tables: 0, hire: 0, fire: 0, loan: false });
+      const f = F({ tables: 0, loan: false });
       const cashAfterLoan = p.cash + (f.loan && !p.loan ? CFG.loan.amount : 0);
       const maxT = Math.min(CFG.maxTables - p.tables, Math.floor(Math.max(0, cashAfterLoan) / CFG.tableCost));
       if (f.tables > maxT) f.tables = maxT;
-      const staffAfter = Math.max(1, Math.min(CFG.maxStaff, p.staff + f.hire - f.fire));
       const cost = f.tables * CFG.tableCost;
-      const capAfter = Math.min(p.tables - p.held + f.tables, staffAfter * CFG.perStaff);
       return head('投资', '双方同时进行，公开结果') + `<div class="form">
         <div class="field"><div class="txt"><b>新增桌子</b><small>每张 $${CFG.tableCost}，永久有效。现有 ${p.tables} 张</small></div>${stepper('tables', f.tables, 0, maxT, '新增桌子')}</div>
-        <div class="field"><div class="txt"><b>雇用员工</b><small>今天就上岗，从明天起每天多付 $${CFG.wage} 工资。现有 ${p.staff} 人</small></div>${stepper('hire', f.hire, 0, CFG.maxStaff - p.staff + f.fire, '雇用员工')}</div>
-        <div class="field"><div class="txt"><b>解雇员工</b><small>至少保留 1 人</small></div>${stepper('fire', f.fire, 0, p.staff - 1 + f.hire, '解雇员工')}</div>
         ${p.loan || !CFG.loan.enabled ? '' : `<label class="field toggle" for="loan-in"><div class="txt"><b>申请贷款</b><small>立即得到 $${CFG.loan.amount}，结束时还 $${CFG.loan.repay}。每局只能贷一次</small></div><input type="checkbox" id="loan-in" data-act="loan" ${f.loan ? 'checked' : ''}></label>`}
         <div class="total"><span>本次花费</span><span>${usd(-cost)} · 剩余 ${usd(cashAfterLoan - cost)}</span></div>
-        <div class="callout">投资后，不算食材的产能上限：桌子 ${p.tables - p.held + f.tables} 张、员工可服务 ${staffAfter * CFG.perStaff} 人，取较小值 <b>${capAfter}</b> 人。明天工资 ${usd(-staffAfter * CFG.wage)}。</div>
+        <div class="callout"><span>投资后有 <b>${p.tables - p.held + f.tables}</b> 张桌子可用，今天最多接待这么多桌（还要有足够的食材）。</span></div>
         <div class="row"><button class="btn" data-act="invest">确认投资</button></div></div>`;
     }
     case 'market': {
@@ -390,8 +385,8 @@ function actionHTML() {
       }).join('');
       const board = `<div class="board" aria-label="市场剩余 ${left} 份">${cells}</div>
         <div class="legend"><span><i class="dot" style="background:var(--p1)"></i>${esc(nameOf('p1'))} 买入 ${m.buys.p1} 份</span><span><i class="dot" style="background:var(--p2)"></i>${esc(nameOf('p2'))} 买入 ${m.buys.p2} 份</span><span>剩余 ${left} 份</span></div>`;
-      const E = expectedDemand(p), capNoIngr = Math.min(p.tables - p.held, p.staff * CFG.perStaff);
-      const info = `<div class="callout"><span>你现在有 <b>${p.ingr}</b> 份食材。广告前预计 约 ${ex(E.total)} 位客人（${E.min}–${E.max}），桌子和员工最多接待 ${capNoIngr} 人。今天用不完的食材会过期。</span></div>`;
+      const E = expectedDemand(p), capNoIngr = Math.max(0, p.tables - p.held);
+      const info = `<div class="callout"><span>你现在有 <b>${p.ingr}</b> 份食材。广告前预计 约 ${ex(E.total)} 位客人（${E.min}–${E.max}），桌子最多接待 ${capNoIngr} 人。今天用不完的食材会过期。</span></div>`;
       if (!k) return head('食材市场', m.passed[s] ? '你已停止购买' : '轮流购买') + board + info + waitHTML(s, m.passed[s] ? `等待${esc(nameOf(o))}买完…` : `轮到${esc(nameOf(o))}购买…`);
       const btn = n => { const ok = n <= left && priceOf(m.sold, n) <= p.cash; return `<button class="btn" data-act="buy" data-n="${n}" ${ok ? '' : 'disabled'}>买 ${n} 份 · $${n <= left ? priceOf(m.sold, n) : '—'}</button>`; };
       return head('食材市场', '轮到你') + board + info + `<div class="row">${btn(1)}${btn(2)}${btn(3)}<button class="btn ghost" data-act="buy" data-n="0">不再购买</button></div><p class="muted" style="font-size:.85rem">选择“不再购买”后，今天就不能再买了。</p>`;
@@ -414,7 +409,7 @@ function actionHTML() {
         <div class="callout"><b>算一算（只算你放的真牌）</b>
           <span>${esc(nameOf(o))}：预计 约 ${ex(eO.total)} 人（${eO.min}–${eO.max}），${desc(eO, co.cap)}。</span>
           <span>你：预计 约 ${ex(eM.total)} 人（${eM.min}–${eM.max}），${desc(eM, cm.cap)}。</span>
-          <span class="muted">放完牌后双方都有一次临时扩容的机会，对手会看到你在他店门口放了几张。</span></div>
+          <span class="muted">放完牌后双方都有一次紧急补货的机会，对手会看到你在他店门口放了几张。</span></div>
         <div class="row"><button class="btn" data-act="commit">背面朝上放牌</button></div></div>`;
     }
     case 'respond': {
@@ -422,24 +417,23 @@ function actionHTML() {
       const board = `<div class="fronts">
         <div><span class="label">你的店门口</span>${frontHTML(s, s)}</div>
         <div><span class="label">${esc(nameOf(o))}的店门口</span>${frontHTML(o, s)}</div></div>`;
-      if (!k) return head('应对', '翻牌前临时扩容') + board + waitHTML(s);
-      const f = F({ temp: 0, rush: 0 }), R = CFG.respond;
-      const reserve = adCost(known), cost = f.temp * R.tempStaff + f.rush * R.rushIngr, left = Math.max(0, p.cash - reserve - cost);
+      if (!k) return head('应对', '翻牌前紧急补货') + board + waitHTML(s);
+      const f = F({ rush: 0 }), R = CFG.respond;
+      const reserve = adCost(known), cost = f.rush * R.rushIngr, left = Math.max(0, p.cash - reserve - cost);
       const capNow = capacityOf(p);
-      const capAfter = Math.min(capNow.tables, (p.staff + f.temp) * CFG.perStaff, p.ingr + f.rush);
+      const capAfter = Math.min(capNow.tables, p.ingr + f.rush);
       const unknown = cmt[o].nRival, eNone = expectedDemand(p, known.selfReal, 0), eAll = expectedDemand(p, known.selfReal + unknown, 0);
-      return head('应对', '翻牌前临时扩容') + board + `<div class="form">
+      return head('应对', '翻牌前紧急补货') + board + `<div class="form">
         <div class="callout"><b>${esc(nameOf(o))}在你店门口放了 ${unknown} 张牌</b>
           <span>如果全是空牌：平均来 约 ${ex(eNone.total)} 人。如果全是真牌：平均来 约 ${ex(eAll.total)} 人（多出 ${unknown * CFG.ad.customers} 人），最多 ${eAll.max} 人。</span>
-          <span>你现在的产能是 <b>${capNow.cap}</b>（桌子 ${capNow.tables} · 员工 ${capNow.staff} · 食材 ${capNow.ingr}）。</span></div>
-        <div class="field"><div class="txt"><b>临时帮工</b><small>每人 $${R.tempStaff}，只帮今天，多服务 ${CFG.perStaff} 位客人</small></div>${stepper('temp', f.temp, 0, Math.min(R.tempStaffMax, f.temp + Math.floor(left / R.tempStaff)), '临时帮工')}</div>
+          <span>你现在的产能是 <b>${capNow.cap}</b>（桌子 ${capNow.tables} · 食材 ${capNow.ingr}）。</span></div>
         <div class="field"><div class="txt"><b>紧急补货</b><small>每份 $${R.rushIngr}，比市场贵，用不完同样过期</small></div>${stepper('rush', f.rush, 0, Math.min(R.rushIngrMax, f.rush + Math.floor(left / R.rushIngr)), '紧急补货')}</div>
-        <div class="total"><span>扩容花费</span><span>${usd(-cost)}</span></div>
-        <div class="capline">${[['tables', '桌子', capNow.tables], ['staff', '员工 ×3', (p.staff + f.temp) * CFG.perStaff], ['ingr', '食材', p.ingr + f.rush]].map(([key, label, val]) =>
+        <div class="total"><span>补货花费</span><span>${usd(-cost)}</span></div>
+        <div class="capline">${[['tables', '桌子', capNow.tables], ['ingr', '食材', p.ingr + f.rush]].map(([key, label, val]) =>
           `<div class="res ${val === capAfter ? 'limit' : ''}"><span class="label">${label}</span><b>${val}</b></div>`).join('')}</div>
-        <div class="callout ${capAfter === capNow.cap && cost ? 'warn' : ''}"><span>扩容后产能 <b>${capAfter}</b>${capAfter !== capNow.cap ? `（原来 ${capNow.cap}）` : ''}。产能取三项中最小的那个，红框是现在卡住的一项${capAfter === capNow.tables ? '；桌子不能临时增加，再多帮工和食材也坐不下更多客人' : ''}。</span></div>
+        <div class="callout ${capAfter === capNow.cap && cost ? 'warn' : ''}"><span>补货后产能 <b>${capAfter}</b>${capAfter !== capNow.cap ? `（原来 ${capNow.cap}）` : ''}。产能取桌子和食材中较小的那个，红框是现在卡住的一项${capAfter === capNow.tables ? '；桌子不能临时增加，再多补货也坐不下更多客人' : ''}。</span></div>
         ${reserve ? `<p class="muted" style="font-size:.85rem">已为你的广告牌预留 ${usd(reserve)}，翻牌时扣。</p>` : ''}
-        <div class="row"><button class="btn" data-act="respond">${cost ? '确认扩容' : '不扩容，直接翻牌'}</button></div></div>`;
+        <div class="row"><button class="btn" data-act="respond">${cost ? '确认补货' : '不补货，直接翻牌'}</button></div></div>`;
     }
     case 'reveal': return head('翻牌', '揭晓中') + waitHTML(s, '双方都已确认，正在翻牌…');
     case 'voucher': {
@@ -534,7 +528,7 @@ function billsHTML() {
 }
 function billHTML(s) {
   const S = app.S, v = S.service[s], p = S.players[s], o = s === 'p1' ? 'p2' : 'p1';
-  const limName = { tables: '桌子', staff: '员工', ingr: '食材' };
+  const limName = { tables: '桌子', ingr: '食材' };
   const lines = p.ledger.map(x => `<li><span>${esc(x.label)}</span><span class="${x.amt > 0 ? 'pos' : x.amt < 0 ? 'neg' : 'muted'}">${x.amt === null ? '' : (x.amt > 0 ? '+' : '') + usd(x.amt)}</span></li>`).join('');
   const rep = v.starsAfter !== undefined
     ? `<div class="eq"><span class="k">声誉</span><span>${v.starsBefore} → ${v.starsAfter} 星　${esc((v.why || []).join('；'))}</span></div>`
@@ -548,7 +542,7 @@ function billHTML(s) {
     <div class="big"><div><span class="label">来客</span><b>${v.demand}</b></div><div><span class="label">接待</span><b>${v.served}</b></div><div class="${v.turned ? 'bad' : ''}"><span class="label">拒绝</span><b>${v.turned}</b></div></div>
     <div class="eq"><span class="k">来客</span><span>基础 ${v.base}${v.repGain ? ` + 声誉 ${v.repGain}` : ''}${v.repLoss ? ` − 声誉流失 ${v.repLoss}` : ''} + 自己广告 ${v.adSelfIn} + ${esc(nameOf(o))}送来 ${v.adRivalIn} = ${v.demand}</span>
       <span class="muted">店门口：${esc(nameOf(s))}放了真 ${v.cards.mine.real} 空 ${v.cards.mine.blank}，${esc(nameOf(o))}放了真 ${v.cards.theirs.real} 空 ${v.cards.theirs.blank}</span></div>
-    <div class="eq"><span class="k">产能</span><span>桌子 ${v.tables} · 员工 ${v.staff} · 食材 ${v.ingr} → 取最小 ${v.cap}</span>
+    <div class="eq"><span class="k">产能</span><span>桌子 ${v.tables} · 食材 ${v.ingr} → 取较小 ${v.cap}</span>
       ${v.limits.length ? `<span class="neg">卡在：${v.limits.map(x => limName[x]).join('、')}</span>` : v.cap > v.demand ? `<span class="muted">还空着 ${v.cap - v.demand} 个位置</span>` : ''}</div>
     ${rep}
     ${extra.length ? `<div class="eq">${extra.map(x => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
@@ -625,7 +619,7 @@ document.addEventListener('click', e => {
     case 'invest': { const f = F({}); return act(s, { k, tables: f.tables || 0, hire: f.hire || 0, fire: f.fire || 0, loan: !!f.loan }); }
     case 'buy': return act(s, { k, n: Number(b.dataset.n) });
     case 'commit': { const f = F({}); return commitCards(s, k, { selfReal: f.sr || 0, selfBlank: f.sb || 0, rivalReal: f.rr || 0, rivalBlank: f.rb || 0 }); }
-    case 'respond': { const f = F({}); return act(s, { k, temp: f.temp || 0, rush: f.rush || 0 }); }
+    case 'respond': { const f = F({}); return act(s, { k, rush: f.rush || 0 }); }
     case 'voucher': { const f = F({}); return act(s, { k, n: f.n || 0 }); }
     case 'next': return act(s, { k });
   }
