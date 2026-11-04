@@ -434,7 +434,10 @@ function actionHTML() {
           <span>你现在的产能是 <b>${capNow.cap}</b>（桌子 ${capNow.tables} · 员工 ${capNow.staff} · 食材 ${capNow.ingr}）。</span></div>
         <div class="field"><div class="txt"><b>临时帮工</b><small>每人 $${R.tempStaff}，只帮今天，多服务 ${CFG.perStaff} 位客人</small></div>${stepper('temp', f.temp, 0, Math.min(R.tempStaffMax, f.temp + Math.floor(left / R.tempStaff)), '临时帮工')}</div>
         <div class="field"><div class="txt"><b>紧急补货</b><small>每份 $${R.rushIngr}，比市场贵，用不完同样过期</small></div>${stepper('rush', f.rush, 0, Math.min(R.rushIngrMax, f.rush + Math.floor(left / R.rushIngr)), '紧急补货')}</div>
-        <div class="total"><span>扩容花费</span><span>${usd(-cost)} · 扩容后产能 ${capAfter}</span></div>
+        <div class="total"><span>扩容花费</span><span>${usd(-cost)}</span></div>
+        <div class="capline">${[['tables', '桌子', capNow.tables], ['staff', '员工 ×3', (p.staff + f.temp) * CFG.perStaff], ['ingr', '食材', p.ingr + f.rush]].map(([key, label, val]) =>
+          `<div class="res ${val === capAfter ? 'limit' : ''}"><span class="label">${label}</span><b>${val}</b></div>`).join('')}</div>
+        <div class="callout ${capAfter === capNow.cap && cost ? 'warn' : ''}"><span>扩容后产能 <b>${capAfter}</b>${capAfter !== capNow.cap ? `（原来 ${capNow.cap}）` : ''}。产能取三项中最小的那个，红框是现在卡住的一项${capAfter === capNow.tables ? '；桌子不能临时增加，再多帮工和食材也坐不下更多客人' : ''}。</span></div>
         ${reserve ? `<p class="muted" style="font-size:.85rem">已为你的广告牌预留 ${usd(reserve)}，翻牌时扣。</p>` : ''}
         <div class="row"><button class="btn" data-act="respond">${cost ? '确认扩容' : '不扩容，直接翻牌'}</button></div></div>`;
     }
