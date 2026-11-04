@@ -9,10 +9,10 @@ const CFG = {
   },
   baseDemand: 6, perStaff: 3, tableCost: 6, maxTables: 14, maxStaff: 6,
   // 广告牌（价格待定）：每天可以买任意张，背面朝上放在自己或对手店前
-  //   real  真广告牌的价格，翻开后带来 customers 位潜在客人，每人按 chance 概率到店
+  //   real  真广告牌的价格，翻开后一定带来 customers 位客人
   //   blank 空牌的价格，翻开后什么也没有，只用来虚张声势
   //   maxPerShop 每天往一家店前最多放几张
-  ad: { real: 6, blank: 2, customers: 2, chance: 0.6, maxPerShop: 4 },
+  ad: { real: 6, blank: 2, customers: 2, maxPerShop: 4 },
   // 声誉（概率待定）：每高于 3 星一颗，多 perStar 位潜在客人，每人按 chance 到店；
   //                   每低于 3 星一颗，有 perStar 位基础客人各按 loseChance 的概率不来
   rep: { perStar: 2, chance: 0.5, loseChance: 0.5 },
@@ -78,7 +78,7 @@ function note(p, label) { p.ledger.push({ label, amt: null }); }
 function expectedDemand(p, realCards = 0, unknownCards = 0) {
   const d = p.stars - CFG.startStars, per = CFG.rep.perStar;
   const rep = d > 0 ? d * per * CFG.rep.chance : -(-d) * per * CFG.rep.loseChance;
-  const ads = realCards * CFG.ad.customers * CFG.ad.chance;
+  const ads = realCards * CFG.ad.customers;
   return { base: CFG.baseDemand, rep, ads, total: CFG.baseDemand + rep + ads,
     min: CFG.baseDemand - (d < 0 ? -d * per : 0),
     max: CFG.baseDemand + (d > 0 ? d * per : 0) + (realCards + unknownCards) * CFG.ad.customers };
@@ -157,13 +157,10 @@ function runService(S) {
     for (let i = cards.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
     let adSelfIn = 0, adRivalIn = 0;
     cards.forEach((card, idx) => {
-      steps.push({ k: 'card', from: card.from, real: card.real, n: idx + 1, of: cards.length });
-      if (!card.real) return;
-      for (let i = 0; i < CFG.ad.customers; i++) {
-        const roll = d100(), need = Math.round(CFG.ad.chance * 100), ok = roll <= need;
-        if (ok) { if (card.from === 'self') adSelfIn++; else adRivalIn++; }
-        steps.push({ k: 'ad', from: card.from, roll, need, ok });
-      }
+      // A real card always brings its customers; a blank brings nobody.
+      const brings = card.real ? CFG.ad.customers : 0;
+      if (card.from === 'self') adSelfIn += brings; else adRivalIn += brings;
+      steps.push({ k: 'card', from: card.from, real: card.real, brings, n: idx + 1, of: cards.length });
     });
     const demand = Math.max(0, base + repGain - repLoss + adSelfIn + adRivalIn);
     steps.push({ k: 'total', demand });

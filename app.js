@@ -405,7 +405,7 @@ function actionHTML() {
       const eO = expectedDemand(po, f.rr), eM = expectedDemand(p, f.sr);
       const desc = (e, cap) => { const room = cap - e.total; return room >= 0 ? `产能 ${cap}，平均还空 <b>${ex(room)}</b> 个位置` : `产能 ${cap}，平均会超出 <b>${ex(-room)}</b> 人`; };
       return head('放广告牌', '背面朝上，对手看不到真假') + `<div class="form">
-        <p class="muted">牌会背面朝上放在店门口。对手只能看到每家店门口有几张牌，看不到真假，也看不到你花了多少钱（翻牌时才扣）。翻牌时，每张真牌带来 ${A.customers} 位潜在客人，每人 ${pct(A.chance)} 概率到店；空牌什么也没有。每家店门口你最多放 ${m} 张。</p>
+        <p class="muted">牌会背面朝上放在店门口。对手只能看到每家店门口有几张牌，看不到真假，也看不到你花了多少钱（翻牌时才扣）。翻牌时，每张真牌一定带来 ${A.customers} 位客人；空牌什么也没有。每家店门口你最多放 ${m} 张。</p>
         <h3>你的店门口</h3>
         ${row('sr', f.sr, '真广告牌', A.real, f.sb)}${row('sb', f.sb, '空牌（虚张声势）', A.blank, f.sr)}
         <h3>${esc(nameOf(o))}的店门口</h3>
@@ -430,7 +430,7 @@ function actionHTML() {
       const unknown = cmt[o].nRival, eNone = expectedDemand(p, known.selfReal, 0), eAll = expectedDemand(p, known.selfReal + unknown, 0);
       return head('应对', '翻牌前临时扩容') + board + `<div class="form">
         <div class="callout"><b>${esc(nameOf(o))}在你店门口放了 ${unknown} 张牌</b>
-          <span>如果全是空牌：平均来 约 ${ex(eNone.total)} 人。如果全是真牌：平均来 约 ${ex(eAll.total)} 人，最多 ${eAll.max} 人。</span>
+          <span>如果全是空牌：平均来 约 ${ex(eNone.total)} 人。如果全是真牌：平均来 约 ${ex(eAll.total)} 人（多出 ${unknown * CFG.ad.customers} 人），最多 ${eAll.max} 人。</span>
           <span>你现在的产能是 <b>${capNow.cap}</b>（桌子 ${capNow.tables} · 员工 ${capNow.staff} · 食材 ${capNow.ingr}）。</span></div>
         <div class="field"><div class="txt"><b>临时帮工</b><small>每人 $${R.tempStaff}，只帮今天，多服务 ${CFG.perStaff} 位客人</small></div>${stepper('temp', f.temp, 0, Math.min(R.tempStaffMax, f.temp + Math.floor(left / R.tempStaff)), '临时帮工')}</div>
         <div class="field"><div class="txt"><b>紧急补货</b><small>每份 $${R.rushIngr}，比市场贵，用不完同样过期</small></div>${stepper('rush', f.rush, 0, Math.min(R.rushIngrMax, f.rush + Math.floor(left / R.rushIngr)), '紧急补货')}</div>
@@ -487,12 +487,11 @@ function stepLine(s, st) {
     case 'base': return li('固定的基础客人到店', `<b class="pos">+${st.n}</b>`);
     case 'rep': return li(`声誉吸引来的客人 ${dice(st.roll, st.need, '到店')}`, st.ok ? '<b class="pos">来了 +1</b>' : '<span class="muted">没来</span>');
     case 'lose': return li(`声誉偏低，一位老客人 ${dice(st.roll, st.need, '流失')}`, st.ok ? '<b class="neg">没来 −1</b>' : '<span class="muted">照常来</span>');
-    case 'ad': return li(`${st.from === 'self' ? '自己的广告' : `${esc(nameOf(o))}送来的广告`} ${dice(st.roll, st.need, '到店')}`, st.ok ? '<b class="pos">来了 +1</b>' : '<span class="muted">没来</span>');
     case 'total': return li(`<b>今天一共来了 ${st.demand} 位客人</b>`, '', 'em');
     case 'noshow': return li(`预订的客人 <span class="muted mono">掷骰 ${st.roll}（4–6 到场）</span>`, st.arrive ? `<b>${st.choice === 'hold' ? '到场付款' : '到场，但没留座位'}</b>` : '<span class="muted">没来</span>');
     case 'seat': return li(`<b>入座 ${st.served} 位</b> <span class="muted">（产能 ${st.cap}）</span>`, '', 'em');
     case 'turned': return li(`<b class="neg">${st.n} 位客人没有座位，被拒绝</b>`, '', 'em bad');
-    case 'card': return li(`翻开第 ${st.n}/${st.of} 张牌 <span class="muted">（${st.from === 'self' ? `${esc(nameOf(s))}自己放的` : `${esc(nameOf(o))}放的`}）</span>`, st.real ? '<b class="pos">真广告</b>' : '<span class="muted">空牌</span>', st.real ? '' : 'blank');
+    case 'card': return li(`翻开第 ${st.n}/${st.of} 张牌 <span class="muted">（${st.from === 'self' ? `${esc(nameOf(s))}自己放的` : `${esc(nameOf(o))}放的`}）</span>`, st.real ? `<b class="pos">真广告 +${st.brings}</b>` : '<span class="muted">空牌</span>', st.real ? '' : 'blank');
     case 'sum': return li(`<b>营业收入 ${usd(st.meals)}</b>`, '', 'em');
   }
   return '';
@@ -502,7 +501,8 @@ function feedHTML(s, n) {
   let came = 0, seated = '—', turned = 0;
   for (const st of shown) {
     if (st.k === 'base') came += st.n;
-    if ((st.k === 'rep' || st.k === 'ad') && st.ok) came++;
+    if (st.k === 'rep' && st.ok) came++;
+    if (st.k === 'card') came += st.brings;
     if (st.k === 'lose' && st.ok) came--;
     if (st.k === 'seat') seated = st.served;
     if (st.k === 'turned') turned = st.n;

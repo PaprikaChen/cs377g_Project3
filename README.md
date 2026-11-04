@@ -57,7 +57,7 @@ python3 -m http.server 8000
 规则数字都在 `engine.js` 开头的 `CFG` 里，例如：
 
 - `loc.country` / `loc.city`：开店费、房租、初始桌子、每桌收入 `price`、免费食材
-- `ad`：真牌价格 `real`、空牌价格 `blank`、每张真牌带来的潜在客人数 `customers`、每人到店概率 `chance`、每家店门口最多几张 `maxPerShop`
+- `ad`：真牌价格 `real`、空牌价格 `blank`、每张真牌一定带来的客人数 `customers`、每家店门口最多几张 `maxPerShop`
 - `respond`：翻牌前临时帮工和紧急补货的价格与上限
 - `rep`：声誉带来的潜在客人数和到店概率、低声誉时老客人流失的概率
 - `market`：每天库存 24 份和三档价格
