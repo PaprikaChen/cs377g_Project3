@@ -309,7 +309,7 @@ function restHTML(s) {
     <div class="stats">
       <div class="stat"><span class="label">Cash</span><b>${['voucher', 'report'].includes(S.phase) && S.service && !watched() ? '<span class="muted" style="font-size:.85rem">open…</span>' : usd(p.cash)}</b></div>
       <div class="stat"><span class="label">Stars</span>${starsHTML(p.stars)}</div>
-      <div class="stat"><span class="label">Per table</span><b>${L ? '$' + L.price : '—'}</b></div>
+      <div class="stat"><span class="label">Income per table</span><b>${L ? '$' + L.price : '—'}</b></div>
     </div>
     ${L && live ? `<div class="capline">
       <div class="res"><span class="label">Tables</span><b>${c.tables}</b>${p.tempTables ? `<span class="muted">${p.tempTables} pop-up</span>` : ''}${own && p.held ? `<span class="muted">+${p.held} held</span>` : ''}</div>
@@ -361,7 +361,7 @@ function actionHTML() {
       const card = loc => { const L = CFG.loc[loc]; return `<button class="pick" data-act="pick" data-loc="${loc}">
         <span class="row" style="justify-content:space-between"><b style="font-size:1.1rem">${L.name}</b><span class="mono muted">${L.tag}</span></span>
         <dl><dt>Opening cost</dt><dd>$${L.open}</dd><dt>Rent / day</dt><dd>$${L.rent}</dd><dt>Tables</dt><dd>${L.tables}</dd>
-        <dt>Per table</dt><dd>$${L.price}</dd><dt>Free food / day</dt><dd>${L.free}</dd></dl></button>`; };
+        <dt>Income per table</dt><dd>$${L.price}</dd><dt>Free food / day</dt><dd>${L.free}</dd></dl></button>`; };
       return head('Pick a shop', `${seatTag(s)} · $${CFG.startCash} to start`) +
         `<p class="muted">Both get ${CFG.baseDemand} regulars a day and start at 3 stars. Your rival won't see your pick until you both choose.</p><div class="picks">${card('country')}${card('city')}</div>`;
     }
