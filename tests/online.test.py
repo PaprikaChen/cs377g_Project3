@@ -1,6 +1,6 @@
 import asyncio, sys
 from playwright.async_api import async_playwright
-SEL=['[data-act=pick]','[data-act=event]','[data-act=invest]','[data-act=buy][data-n="3"]:not([disabled])','[data-act=buy][data-n="0"]','[data-act=commit]','[data-act=skip]','[data-act=voucher]','[data-act=next]']
+SEL=['[data-act=pick]','[data-act=event]','[data-act=invest]','[data-act=buy][data-n="3"]:not([disabled])','[data-act=buy][data-n="0"]','[data-act=commit]','[data-act=respond]','[data-act=skip]','[data-act=voucher]','[data-act=next]']
 async def main():
     async with async_playwright() as p:
         b = await p.chromium.launch(); ctx = await b.new_context(viewport={'width':1200,'height':900})
@@ -27,7 +27,11 @@ async def main():
             for pg in pages:
                 ph = await pg.evaluate('__rr.S && __rr.S.phase')
                 if ph=='commit' and await pg.locator('[data-act=commit]').count():
-                    await pg.locator('[data-act=inc][data-f=rival][data-d="1"]').click()
+                    await pg.locator('[data-act=inc][data-f=rr][data-d="1"]').click()
+                    await pg.locator('[data-act=inc][data-f=sb][data-d="1"]').click()
+                if ph=='respond' and await pg.locator('[data-act=respond]').count():
+                    if pg is A and not shot: await pg.screenshot(path='/tmp/respond.png', full_page=True)
+                    await pg.locator('[data-act=inc][data-f=temp][data-d="1"]').click()
                 for s in SEL:
                     if await pg.locator(s).count():
                         await pg.locator(s).first.click(); break

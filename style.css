@@ -165,3 +165,12 @@ input.nick{text-transform:none;letter-spacing:normal;width:12em;max-width:100%;f
 .feed li.em{border-bottom-style:solid}
 @keyframes pop{from{background:var(--sunk)}to{background:transparent}}
 @media (prefers-reduced-motion:reduce){.feed li:first-child{animation:none}}
+.cards{display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center}
+.card{width:30px;height:40px;border-radius:4px;display:inline-grid;place-items:center;font-family:var(--mono);font-size:.78rem;font-weight:600;color:var(--ink);
+  border:2px solid var(--seat-c);background:repeating-linear-gradient(45deg,var(--sunk) 0 4px,var(--paper) 4px 8px)}
+.card[data-from="p1"]{--seat-c:var(--p1)} .card[data-from="p2"]{--seat-c:var(--p2)}
+.fronts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.fronts>div{display:grid;gap:6px;align-content:start;min-width:0}
+@media (max-width:560px){.fronts{grid-template-columns:1fr}}
+.feed li.blank{opacity:.75}
+.form h3{margin-top:4px}

@@ -1,22 +1,24 @@
 // ===== Rules engine: replays both players' action logs into the game state =====
 const CFG = {
   rounds: 5, startCash: 100, wage: 4, startStaff: 2, startStars: 3,
-  // price = 每桌餐费（不含小费）；tip = 每桌小费占餐费的随机比例范围 [最低, 最高]
+  // price = 每桌收入（餐费含小费，固定）
   // ⚠ 标“待定”的数字是占位值，等小组定稿
   loc: {
-    country: { name: '乡村店', tag: '$$', open: 20, rent: 5, tables: 6, price: 7, tip: [0.05, 0.15], free: 2 },   // price、tip 待定
-    city:    { name: '城市店', tag: '$$$', open: 35, rent: 12, tables: 4, price: 10, tip: [0.10, 0.25], free: 0 } // price、tip 待定
+    country: { name: '乡村店', tag: '$$', open: 20, rent: 5, tables: 6, price: 8, free: 2 },
+    city:    { name: '城市店', tag: '$$$', open: 35, rent: 12, tables: 4, price: 12, free: 0 }
   },
   baseDemand: 6, perStaff: 3, tableCost: 6, maxTables: 14, maxStaff: 6,
-  // 到店概率（待定）：
-  //   ad.chance      每张广告带来 customers 位潜在客人，每人按这个概率到店
-  //   rep.perStar    声誉每高于 3 星一颗，多 perStar 位潜在客人，每人按 rep.chance 到店
-  //                  声誉每低于 3 星一颗，有 perStar 位基础客人各按 rep.loseChance 的概率不来
-  ad: { cost: 5, customers: 2, chance: 0.6 },
+  // 广告牌（价格待定）：每天可以买任意张，背面朝上放在自己或对手店前
+  //   real  真广告牌的价格，翻开后带来 customers 位潜在客人，每人按 chance 概率到店
+  //   blank 空牌的价格，翻开后什么也没有，只用来虚张声势
+  //   maxPerShop 每天往一家店前最多放几张
+  ad: { real: 6, blank: 2, customers: 2, chance: 0.6, maxPerShop: 4 },
+  // 声誉（概率待定）：每高于 3 星一颗，多 perStar 位潜在客人，每人按 chance 到店；
+  //                   每低于 3 星一颗，有 perStar 位基础客人各按 loseChance 的概率不来
   rep: { perStar: 2, chance: 0.5, loseChance: 0.5 },
-  // 小费随员工忙碌程度浮动（待定）：忙碌度 = 接待人数 ÷ (员工 × 3)
-  // 很清闲时小费比例最多 +staffSwing，满负荷时最多 −staffSwing
-  staffSwing: 0.05,
+  // 翻牌前的临时扩容（价格待定，只在当天有效）
+  //   tempStaff 临时帮工，每人能多服务 perStaff 位客人；rushIngr 紧急补货，每份食材的价格
+  respond: { tempStaff: 6, tempStaffMax: 3, rushIngr: 3, rushIngrMax: 8 },
   market: { stock: 24, tiers: [[8, 1], [16, 2], [24, 3]], maxPerTurn: 3 },
   voucher: 3, loan: { amount: 30, repay: 40 },
   starValue: 10, shady: { cash: 15, fine: 20 }, noshow: { pay: 30, tables: 2 }
@@ -45,7 +47,9 @@ function rand(seed, tag) {
   };
 }
 const d6 = (seed, tag) => 1 + Math.floor(rand(seed, tag)() * 6);
-const adHash = (self, rival, salt) => String(cyrb53(`${self}|${rival}|${salt}`));
+// 广告牌的暗中提交：只公开每家店前的张数，真假组合用校验码锁住
+const adHash = (c, salt) => String(cyrb53(`${c.selfReal}|${c.selfBlank}|${c.rivalReal}|${c.rivalBlank}|${salt}`));
+const adCost = c => (c.selfReal + c.rivalReal) * CFG.ad.real + (c.selfBlank + c.rivalBlank) * CFG.ad.blank;
 
 function priceOf(sold, n) {
   let cost = 0;
@@ -64,21 +68,23 @@ const intIn = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v) || 0
 
 function newPlayer() {
   return { loc: null, cash: CFG.startCash, stars: CFG.startStars, tables: 0, staff: CFG.startStaff,
-    ingr: 0, loan: false, shadyFrom: null, bankrupt: false, held: 0, ledger: [], history: [] };
+    ingr: 0, temp: 0, loan: false, shadyFrom: null, bankrupt: false, held: 0, ledger: [], history: [] };
 }
 function money(p, label, amt) { p.cash = round2(p.cash + amt); p.ledger.push({ label, amt: round2(amt) }); }
 function note(p, label) { p.ledger.push({ label, amt: null }); }
 
 // Expected customers before the doors open (the page shows this as a forecast; the real number is rolled at service).
-function expectedDemand(p, adTokens = 0) {
+// realCards = 确定是真的广告牌；unknownCards = 不知真假的牌（最多都是真的）
+function expectedDemand(p, realCards = 0, unknownCards = 0) {
   const d = p.stars - CFG.startStars, per = CFG.rep.perStar;
   const rep = d > 0 ? d * per * CFG.rep.chance : -(-d) * per * CFG.rep.loseChance;
-  const ads = adTokens * CFG.ad.customers * CFG.ad.chance;
+  const ads = realCards * CFG.ad.customers * CFG.ad.chance;
   return { base: CFG.baseDemand, rep, ads, total: CFG.baseDemand + rep + ads,
-    min: CFG.baseDemand - (d < 0 ? -d * per : 0), max: CFG.baseDemand + (d > 0 ? d * per : 0) + adTokens * CFG.ad.customers };
+    min: CFG.baseDemand - (d < 0 ? -d * per : 0),
+    max: CFG.baseDemand + (d > 0 ? d * per : 0) + (realCards + unknownCards) * CFG.ad.customers };
 }
 function capacityOf(p) {
-  const t = Math.max(0, p.tables - p.held), s = p.staff * CFG.perStaff, i = p.ingr;
+  const t = Math.max(0, p.tables - p.held), s = (p.staff + p.temp) * CFG.perStaff, i = p.ingr;
   return { tables: t, staff: s, ingr: i, cap: Math.min(t, s, i) };
 }
 
@@ -100,7 +106,7 @@ function startRound(S) {
   S.round++;
   for (const s of SEATS) {
     const p = S.players[s], L = CFG.loc[p.loc];
-    p.ledger = []; p.held = 0;
+    p.ledger = []; p.held = 0; p.temp = 0;
     money(p, '房租', -L.rent);
     money(p, `工资（${p.staff} 名员工）`, -p.staff * CFG.wage);
     p.ingr = L.free;
@@ -129,7 +135,8 @@ function runService(S) {
   for (const s of SEATS) {
     const p = S.players[s], o = other(s), L = CFG.loc[p.loc];
     const r = rand(S.seed, `svc${S.round}${s}`), d100 = () => 1 + Math.floor(r() * 100);
-    const steps = [], adsSelf = S.reveals[s].self, adsRival = S.reveals[o].rival;
+    const steps = [], mine = S.reveals[s].self, theirs = S.reveals[o].rival;
+    const adsSelf = mine.real, adsRival = theirs.real;
     const base = CFG.baseDemand, diff = p.stars - CFG.startStars;
     steps.push({ k: 'base', n: base });
     let repGain = 0, repLoss = 0;
@@ -141,12 +148,23 @@ function runService(S) {
       const roll = d100(), need = Math.round(CFG.rep.loseChance * 100), ok = roll <= need;
       if (ok) repLoss++; steps.push({ k: 'lose', roll, need, ok });
     }
-    let adSelfIn = 0, adRivalIn = 0;
-    for (const [from, n] of [['self', adsSelf], ['rival', adsRival]]) for (let i = 0; i < n * CFG.ad.customers; i++) {
-      const roll = d100(), need = Math.round(CFG.ad.chance * 100), ok = roll <= need;
-      if (ok) { if (from === 'self') adSelfIn++; else adRivalIn++; }
-      steps.push({ k: 'ad', from, roll, need, ok });
+    // Flip every card in front of this shop in a shuffled order; each real card then rolls for its customers.
+    const cards = [];
+    for (const [from, c] of [['self', mine], ['rival', theirs]]) {
+      for (let i = 0; i < c.real; i++) cards.push({ from, real: true });
+      for (let i = 0; i < c.blank; i++) cards.push({ from, real: false });
     }
+    for (let i = cards.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
+    let adSelfIn = 0, adRivalIn = 0;
+    cards.forEach((card, idx) => {
+      steps.push({ k: 'card', from: card.from, real: card.real, n: idx + 1, of: cards.length });
+      if (!card.real) return;
+      for (let i = 0; i < CFG.ad.customers; i++) {
+        const roll = d100(), need = Math.round(CFG.ad.chance * 100), ok = roll <= need;
+        if (ok) { if (card.from === 'self') adSelfIn++; else adRivalIn++; }
+        steps.push({ k: 'ad', from: card.from, roll, need, ok });
+      }
+    });
     const demand = Math.max(0, base + repGain - repLoss + adSelfIn + adRivalIn);
     steps.push({ k: 'total', demand });
     let noshow = null;
@@ -161,20 +179,11 @@ function runService(S) {
     const limits = demand > c.cap ? ['tables', 'staff', 'ingr'].filter(k => c[k] === c.cap) : [];
     steps.push({ k: 'seat', served, cap: c.cap, limits });
     if (turned) steps.push({ k: 'turned', n: turned });
-    // Tips: a random share of each table's bill, nudged up when staff are idle and down when they are stretched.
-    const load = c.staff ? served / c.staff : 1, adj = round2(CFG.staffSwing * (1 - 2 * load));
-    const [lo, hi] = L.tip;
-    let tips = 0;
-    for (let i = 0; i < served; i++) {
-      const roll = round2(lo + r() * (hi - lo)), pct = Math.max(0, round2(roll + adj)), amt = round2(L.price * pct);
-      tips = round2(tips + amt); steps.push({ k: 'tip', table: i + 1, roll, adj, pct, amt });
-    }
     const meals = served * L.price;
-    if (served) money(p, `餐费（${served} 桌 × $${L.price}）`, meals);
-    if (tips) money(p, `小费（${served} 桌合计）`, tips);
-    steps.push({ k: 'sum', meals, tips, load: round2(load), adj });
+    if (served) money(p, `营业收入（${served} 桌 × $${L.price}）`, meals);
+    steps.push({ k: 'sum', meals });
     S.service[s] = { base, repGain, repLoss, adsSelf, adsRival, adSelfIn, adRivalIn, demand, ...c, served, turned,
-      limits, noshow, vouchers: 0, meals, tips, load: round2(load), adj, steps };
+      limits, noshow, vouchers: 0, meals, cards: { mine, theirs }, temp: p.temp, steps };
   }
   const needV = SEATS.some(s => S.service[s].turned > 0 && S.players[s].cash >= CFG.voucher);
   if (needV) S.phase = 'voucher'; else review(S);
@@ -236,6 +245,7 @@ function expected(S) {
     case 'invest': need.p1 = need.p2 = `${r}:invest`; break;
     case 'market': need[S.market.turn] = `${r}:market:${S.market.step}`; break;
     case 'commit': need.p1 = need.p2 = `${r}:commit`; break;
+    case 'respond': need.p1 = need.p2 = `${r}:respond`; break;
     case 'reveal': need.p1 = need.p2 = `${r}:reveal`; break;
     case 'voucher':
       for (const s of SEATS) if (S.service[s].turned > 0 && S.players[s].cash >= CFG.voucher) need[s] = `${r}:voucher`;
@@ -301,19 +311,35 @@ function apply(S, got) {
       break;
     }
     case 'commit': {
-      S.commits = { p1: String(got.p1.h), p2: String(got.p2.h) }; S.reveals = {};
+      S.commits = {}; S.reveals = {};
+      for (const s of SEATS) {
+        const a = got[s], m = CFG.ad.maxPerShop;
+        S.commits[s] = { h: String(a.h), nSelf: intIn(a.nSelf, 0, m), nRival: intIn(a.nRival, 0, m) };
+      }
+      S.phase = 'respond'; break;
+    }
+    case 'respond': {
+      const R = CFG.respond;
+      for (const s of SEATS) {
+        const p = S.players[s], a = got[s];
+        const staff = Math.min(intIn(a.temp, 0, R.tempStaffMax), Math.floor(Math.max(0, p.cash) / R.tempStaff));
+        if (staff) { money(p, `临时帮工 ${staff} 人`, -staff * R.tempStaff); p.temp = staff; }
+        const rush = Math.min(intIn(a.rush, 0, R.rushIngrMax), Math.floor(Math.max(0, p.cash) / R.rushIngr));
+        if (rush) { money(p, `紧急补货 ${rush} 份`, -rush * R.rushIngr); p.ingr += rush; }
+      }
       S.phase = 'reveal'; break;
     }
     case 'reveal': {
       for (const s of SEATS) {
-        const p = S.players[s], a = got[s];
-        let self = intIn(a.self, 0, 40), rival = intIn(a.rival, 0, 40), ok = true;
-        if (adHash(self, rival, a.salt) !== S.commits[s]) { self = 0; rival = 0; ok = false; }
-        const allowed = Math.floor(Math.max(0, p.cash) / CFG.ad.cost);
-        rival = Math.min(rival, allowed); self = Math.min(self, allowed - rival);
-        if (self) money(p, `给自己打广告 ${self} 张`, -self * CFG.ad.cost);
-        if (rival) money(p, `给对手打广告 ${rival} 张`, -rival * CFG.ad.cost);
-        S.reveals[s] = { self, rival, ok };
+        const p = S.players[s], a = got[s], cm = S.commits[s], m = CFG.ad.maxPerShop;
+        const c = { selfReal: intIn(a.selfReal, 0, m), selfBlank: intIn(a.selfBlank, 0, m),
+          rivalReal: intIn(a.rivalReal, 0, m), rivalBlank: intIn(a.rivalBlank, 0, m) };
+        let ok = adHash(c, a.salt) === cm.h && c.selfReal + c.selfBlank === cm.nSelf && c.rivalReal + c.rivalBlank === cm.nRival;
+        // A failed check turns every card into a blank (the counts everyone saw stay the same).
+        if (!ok) { c.selfReal = 0; c.selfBlank = cm.nSelf; c.rivalReal = 0; c.rivalBlank = cm.nRival; }
+        const cost = adCost(c);
+        if (cost) money(p, `广告牌（真 ${c.selfReal + c.rivalReal} 张，空 ${c.selfBlank + c.rivalBlank} 张）`, -cost);
+        S.reveals[s] = { self: { real: c.selfReal, blank: c.selfBlank }, rival: { real: c.rivalReal, blank: c.rivalBlank }, ok };
       }
       runService(S); break;
     }
@@ -352,4 +378,4 @@ function simulate(seed, logs) {
   return S;
 }
 
-if (typeof module !== 'undefined') module.exports = { CFG, simulate, adHash, priceOf, maxAffordable, capacityOf, expectedDemand, expected };
+if (typeof module !== 'undefined') module.exports = { CFG, simulate, adHash, adCost, priceOf, maxAffordable, capacityOf, expectedDemand, expected };

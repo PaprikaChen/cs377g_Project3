@@ -7,11 +7,13 @@ function bot(S, seat, rnd, priv) {
     case 'invest': return { k, tables: Math.floor(rnd() * 3), hire: Math.floor(rnd() * 2), fire: 0, loan: rnd() < 0.1 };
     case 'market': return { k, n: rnd() < 0.2 ? 0 : 1 + Math.floor(rnd() * 3) };
     case 'commit': {
-      const self = Math.floor(rnd() * 3), rival = Math.floor(rnd() * 3), salt = String(rnd());
-      priv[seat] = { self, rival, salt };
-      return { k, h: E.adHash(self, rival, salt) };
+      const c = { selfReal: Math.floor(rnd() * 2), selfBlank: Math.floor(rnd() * 2), rivalReal: Math.floor(rnd() * 3), rivalBlank: Math.floor(rnd() * 2) };
+      const salt = String(rnd());
+      priv[seat] = { ...c, salt };
+      return { k, h: E.adHash(c, salt), nSelf: c.selfReal + c.selfBlank, nRival: c.rivalReal + c.rivalBlank };
     }
-    case 'reveal': return { k, ...priv[seat] };
+    case 'respond': return { k, temp: Math.floor(rnd() * 2), rush: Math.floor(rnd() * 3) };
+    case 'reveal': return { k, ...(rnd() < 0.03 ? { ...priv[seat], selfReal: 3 } : priv[seat]) };
     case 'voucher': return { k, n: Math.floor(rnd() * 3) };
     case 'report': return { k };
   }

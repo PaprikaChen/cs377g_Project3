@@ -164,16 +164,22 @@ function act(seat, a) {
   }
   refresh();
 }
-// Your ad split stays on your own device (and in your private Firebase folder) until both players have committed.
+// Which of your cards are real stays on your own device (and in your private Firebase folder) until both players have placed theirs.
 const privKey = (s, r) => `${app.code}:${r}:${s}`;
-async function commitAds(s, k, self, rival) {
-  const r = app.S.round, priv = { self, rival, salt: randHex() };
+const NO_CARDS = { selfReal: 0, selfBlank: 0, rivalReal: 0, rivalBlank: 0 };
+function myCards(s) {
+  const key = privKey(s, app.S.round);
+  if (!app.priv[key] && app.mode === 'online') { try { const v = JSON.parse(lsGet('ad:' + key) || 'null'); if (v) app.priv[key] = v; } catch (e) {} }
+  return app.priv[key] || null;
+}
+async function commitCards(s, k, c) {
+  const r = app.S.round, priv = { ...c, salt: randHex() };
   app.priv[privKey(s, r)] = priv;
   if (app.mode === 'online') {
     lsSet('ad:' + privKey(s, r), JSON.stringify(priv));
     try { await app.fb.set(`users/${app.uid}/ads/${app.code}-r${r}`, priv); } catch (e) {}
   }
-  act(s, { k, h: adHash(self, rival, priv.salt) });
+  act(s, { k, h: adHash(c, priv.salt), nSelf: c.selfReal + c.selfBlank, nRival: c.rivalReal + c.rivalBlank });
 }
 async function doReveal(s, k, r) {
   let priv = app.priv[privKey(s, r)];
@@ -181,8 +187,8 @@ async function doReveal(s, k, r) {
     try { priv = JSON.parse(lsGet('ad:' + privKey(s, r)) || 'null'); } catch (e) {}
     if (!priv) { try { const d = await app.fb.get(`users/${app.uid}/ads/${app.code}-r${r}`); if (d.exists) priv = d.data; } catch (e) {} }
   }
-  if (!priv) { priv = { self: 0, rival: 0, salt: '' }; toast('找不到你暗中提交的广告记录，本回合广告按 0 张计算。'); }
-  act(s, { k, self: priv.self, rival: priv.rival, salt: priv.salt });
+  if (!priv) { priv = { ...NO_CARDS, salt: '' }; toast('找不到你放牌的记录，你的牌这回合都按空牌计算。'); }
+  act(s, { k, selfReal: priv.selfReal, selfBlank: priv.selfBlank, rivalReal: priv.rivalReal, rivalBlank: priv.rivalBlank, salt: priv.salt });
 }
 
 function refresh() {
@@ -208,8 +214,8 @@ function F(defaults) {
 }
 
 // ---------- rendering ----------
-const PHASES = [['event', '事件'], ['invest', '投资'], ['market', '市场'], ['commit', '广告'], ['voucher', '营业'], ['report', '复盘']];
-const phaseIdx = p => ({ event: 0, invest: 1, market: 2, commit: 3, reveal: 3, voucher: 4, report: 5 })[p] ?? -1;
+const PHASES = [['event', '事件'], ['invest', '投资'], ['market', '市场'], ['commit', '放牌'], ['respond', '应对'], ['voucher', '营业'], ['report', '复盘']];
+const phaseIdx = p => ({ event: 0, invest: 1, market: 2, commit: 3, respond: 4, reveal: 5, voucher: 5, report: 6 })[p] ?? -1;
 
 function render() {
   renderBar();
@@ -269,10 +275,28 @@ function lobbyHTML() {
 
 function starsHTML(n) { return `<span class="stars" aria-label="${n} 星">${'★'.repeat(n)}<i>${'★'.repeat(5 - n)}</i></span>`; }
 
+// Cards in front of `shop`, as `viewerSeat` sees them: your own cards show real/blank, the opponent's stay face down.
+function frontHTML(shop, viewerSeat) {
+  const S = app.S, cm = S.commits; if (!cm || !cm.p1) return '';
+  const own = shop, rival = shop === 'p1' ? 'p2' : 'p1', out = [];
+  const add = (placer, n, real, blank) => {
+    const mine = app.mode === 'local' ? placer === viewerSeat : placer === app.me;
+    const known = mine ? myCards(placer) : null;
+    for (let i = 0; i < n; i++) {
+      const isReal = known ? i < real : null;
+      out.push(`<span class="card" data-from="${placer}" title="${esc(nameOf(placer))}放的">${isReal === null ? '?' : isReal ? '真' : '空'}</span>`);
+    }
+  };
+  const kOwn = myCards(own) || NO_CARDS, kRival = myCards(rival) || NO_CARDS;
+  add(own, cm[own].nSelf, kOwn.selfReal, kOwn.selfBlank);
+  add(rival, cm[rival].nRival, kRival.rivalReal, kRival.rivalBlank);
+  return `<span class="cards">${out.join('') || '<span class="muted">没有牌</span>'}</span>`;
+}
+
 function restHTML(s) {
   const S = app.S, p = S.players[s], L = p.loc && CFG.loc[p.loc];
   const c = capacityOf(p), E = expectedDemand(p), demand = E.total;
-  const live = ['event', 'invest', 'market', 'commit', 'reveal'].includes(S.phase);
+  const live = ['event', 'invest', 'market', 'commit', 'respond', 'reveal'].includes(S.phase);
   const lim = k => (L && live && c[k] === c.cap && demand > c.cap ? 'limit' : '');
   const flags = [];
   if (p.loan) flags.push(`<span class="flag">已贷款（结束时还 $${CFG.loan.repay}）</span>`);
@@ -283,15 +307,16 @@ function restHTML(s) {
     <div class="stats">
       <div class="stat"><span class="label">现金</span><b>${['voucher', 'report'].includes(S.phase) && S.service && !watched() ? '<span class="muted" style="font-size:.85rem">营业中…</span>' : usd(p.cash)}</b></div>
       <div class="stat"><span class="label">声誉</span>${starsHTML(p.stars)}</div>
-      <div class="stat"><span class="label">每桌餐费</span><b>${L ? '$' + L.price : '—'}</b>${L ? `<span class="muted" style="font-size:.75rem">小费 ${pct(L.tip[0])}–${pct(L.tip[1])}</span>` : ''}</div>
+      <div class="stat"><span class="label">每桌收入</span><b>${L ? '$' + L.price : '—'}</b></div>
     </div>
     ${L && live ? `<div class="capline">
       <div class="res ${lim('tables')}"><span class="label">桌子</span><b>${c.tables}</b>${p.held ? `<span class="muted">另 ${p.held} 张保留</span>` : ''}</div>
-      <div class="res ${lim('staff')}"><span class="label">员工 ×3</span><b>${c.staff}</b><span class="muted">${p.staff} 人</span></div>
+      <div class="res ${lim('staff')}"><span class="label">员工 ×3</span><b>${c.staff}</b><span class="muted">${p.staff} 人${p.temp ? ` + 临时 ${p.temp}` : ''}</span></div>
       <div class="res ${lim('ingr')}"><span class="label">食材</span><b>${c.ingr}</b></div>
     </div>
     <div class="forecast"><span>广告前预计 约 <b class="mono">${ex(demand)}</b> 人 <span class="muted">（${E.min}–${E.max}）</span></span><span>今日产能 <b class="mono">${c.cap}</b> 人</span></div>` : ''}
     ${L && !live ? `<div class="forecast"><span>桌子 <b class="mono">${p.tables}</b> 张</span><span>员工 <b class="mono">${p.staff}</b> 人</span></div>` : ''}
+    ${['respond', 'reveal'].includes(S.phase) ? `<div class="forecast"><span>店门口的背面牌</span>${frontHTML(s, viewer())}</div>` : ''}
     ${flags.length ? `<div class="flags">${flags.join('')}</div>` : ''}
   </article>`;
 }
@@ -327,9 +352,9 @@ function actionHTML() {
       const card = loc => { const L = CFG.loc[loc]; return `<button class="pick" data-act="pick" data-loc="${loc}">
         <span class="row" style="justify-content:space-between"><b style="font-size:1.1rem">${L.name}</b><span class="mono muted">${L.tag}</span></span>
         <dl><dt>开店费用</dt><dd>$${L.open}</dd><dt>每天房租</dt><dd>$${L.rent}</dd><dt>初始桌子</dt><dd>${L.tables} 张</dd>
-        <dt>每桌餐费</dt><dd>$${L.price}</dd><dt>每桌小费</dt><dd>餐费的 ${pct(L.tip[0])}–${pct(L.tip[1])}</dd><dt>每天免费食材</dt><dd>${L.free} 份</dd></dl></button>`; };
+        <dt>每桌收入</dt><dd>$${L.price}</dd><dt>每天免费食材</dt><dd>${L.free} 份</dd></dl></button>`; };
       return head('选择餐厅', `${seatTag(s)} · 起始资金 $${CFG.startCash}`) +
-        `<p class="muted">两家店每天固定有 ${CFG.baseDemand} 位基础客人，其他客人（声誉、广告带来的）都要看运气。每桌小费是餐费的随机比例，员工越清闲小费越高。每人开局有 ${CFG.startStaff} 名员工、3 星声誉。对手看不到你的选择，直到双方都选好。</p><div class="picks">${card('country')}${card('city')}</div>`;
+        `<p class="muted">两家店每天固定有 ${CFG.baseDemand} 位基础客人，声誉和广告牌带来的客人要看运气。每人开局有 ${CFG.startStaff} 名员工、3 星声誉。对手看不到你的选择，直到双方都选好。</p><div class="picks">${card('country')}${card('city')}</div>`;
     }
     case 'event': {
       const e = S.event;
@@ -371,25 +396,49 @@ function actionHTML() {
       const btn = n => { const ok = n <= left && priceOf(m.sold, n) <= p.cash; return `<button class="btn" data-act="buy" data-n="${n}" ${ok ? '' : 'disabled'}>买 ${n} 份 · $${n <= left ? priceOf(m.sold, n) : '—'}</button>`; };
       return head('食材市场', '轮到你') + board + info + `<div class="row">${btn(1)}${btn(2)}${btn(3)}<button class="btn ghost" data-act="buy" data-n="0">不再购买</button></div><p class="muted" style="font-size:.85rem">选择“不再购买”后，今天就不能再买了。</p>`;
     }
-    case 'commit': case 'reveal': {
-      if (S.phase === 'reveal') return head('广告', '揭晓中') + waitHTML(s, '双方都已提交，正在同时揭晓…');
-      if (!k) return head('广告', '暗中提交') + waitHTML(s);
-      const f = F({ self: 0, rival: 0 });
-      const maxTok = Math.floor(Math.max(0, p.cash) / CFG.ad.cost);
+    case 'commit': {
+      if (!k) return head('放广告牌', '背面朝上') + waitHTML(s);
+      const f = F({ sr: 0, sb: 0, rr: 0, rb: 0 }), A = CFG.ad, m = A.maxPerShop;
+      const c = { selfReal: f.sr, selfBlank: f.sb, rivalReal: f.rr, rivalBlank: f.rb }, cost = adCost(c), left = Math.max(0, p.cash - cost);
+      const row = (field, val, label, price, others) => `<div class="field"><div class="txt"><b>${label}</b><small>每张 $${price}</small></div>${stepper(field, val, 0, Math.min(m - others, val + Math.floor(left / price)), label)}</div>`;
       const po = S.players[o], co = capacityOf(po), cm = capacityOf(p);
-      const eO = expectedDemand(po, f.rival), eM = expectedDemand(p, f.self);
-      const per = CFG.ad.customers * CFG.ad.chance;
-      const desc = (e, cap) => { const room = cap - e.total; return room >= 0 ? `产能 ${cap} 人，平均还空 <b>${ex(room)}</b> 个位置` : `产能 ${cap} 人，平均会超出 <b>${ex(-room)}</b> 人`; };
-      return head('广告', '暗中提交，同时揭晓') + `<div class="form">
-        <div class="field"><div class="txt"><b>给自己打广告</b><small>每张 $${CFG.ad.cost}，带来 ${CFG.ad.customers} 位潜在客人，每人 ${pct(CFG.ad.chance)} 概率到店（平均 ${ex(per)} 人）</small></div>${stepper('self', f.self, 0, maxTok - f.rival, '给自己打广告')}</div>
-        <div class="field"><div class="txt"><b>给${esc(nameOf(o))}打广告</b><small>每张 $${CFG.ad.cost}，给对方送去 ${CFG.ad.customers} 位潜在客人，每人 ${pct(CFG.ad.chance)} 概率到店</small></div>${stepper('rival', f.rival, 0, maxTok - f.self, '给对手打广告')}</div>
-        <div class="total"><span>广告花费</span><span>${usd(-(f.self + f.rival) * CFG.ad.cost)} · 剩余 ${usd(p.cash - (f.self + f.rival) * CFG.ad.cost)}</span></div>
-        <div class="callout"><b>算一算</b>
-          <span>${esc(nameOf(o))}：算上你投给他的广告，预计 约 ${ex(eO.total)} 人（${eO.min}–${eO.max}），${desc(eO, co.cap)}。</span>
-          <span>你：算上你给自己的广告，预计 约 ${ex(eM.total)} 人（${eM.min}–${eM.max}），${desc(eM, cm.cap)}。</span>
-          <span class="muted">对手也可能给你或给自己投广告。接不住的客人会让餐厅掉声誉，除非花 $${CFG.voucher}/人 发补偿券。</span></div>
-        <div class="row"><button class="btn" data-act="commit">暗中提交</button></div></div>`;
+      const eO = expectedDemand(po, f.rr), eM = expectedDemand(p, f.sr);
+      const desc = (e, cap) => { const room = cap - e.total; return room >= 0 ? `产能 ${cap}，平均还空 <b>${ex(room)}</b> 个位置` : `产能 ${cap}，平均会超出 <b>${ex(-room)}</b> 人`; };
+      return head('放广告牌', '背面朝上，对手看不到真假') + `<div class="form">
+        <p class="muted">牌会背面朝上放在店门口。对手只能看到每家店门口有几张牌，看不到真假，也看不到你花了多少钱（翻牌时才扣）。翻牌时，每张真牌带来 ${A.customers} 位潜在客人，每人 ${pct(A.chance)} 概率到店；空牌什么也没有。每家店门口你最多放 ${m} 张。</p>
+        <h3>你的店门口</h3>
+        ${row('sr', f.sr, '真广告牌', A.real, f.sb)}${row('sb', f.sb, '空牌（虚张声势）', A.blank, f.sr)}
+        <h3>${esc(nameOf(o))}的店门口</h3>
+        ${row('rr', f.rr, '真广告牌', A.real, f.rb)}${row('rb', f.rb, '空牌（虚张声势）', A.blank, f.rr)}
+        <div class="total"><span>翻牌时扣款</span><span>${usd(-cost)} · 剩余 ${usd(p.cash - cost)}</span></div>
+        <div class="callout"><b>算一算（只算你放的真牌）</b>
+          <span>${esc(nameOf(o))}：预计 约 ${ex(eO.total)} 人（${eO.min}–${eO.max}），${desc(eO, co.cap)}。</span>
+          <span>你：预计 约 ${ex(eM.total)} 人（${eM.min}–${eM.max}），${desc(eM, cm.cap)}。</span>
+          <span class="muted">放完牌后双方都有一次临时扩容的机会，对手会看到你在他店门口放了几张。</span></div>
+        <div class="row"><button class="btn" data-act="commit">背面朝上放牌</button></div></div>`;
     }
+    case 'respond': {
+      const cmt = S.commits, known = myCards(s) || NO_CARDS;
+      const board = `<div class="fronts">
+        <div><span class="label">你的店门口</span>${frontHTML(s, s)}</div>
+        <div><span class="label">${esc(nameOf(o))}的店门口</span>${frontHTML(o, s)}</div></div>`;
+      if (!k) return head('应对', '翻牌前临时扩容') + board + waitHTML(s);
+      const f = F({ temp: 0, rush: 0 }), R = CFG.respond;
+      const reserve = adCost(known), cost = f.temp * R.tempStaff + f.rush * R.rushIngr, left = Math.max(0, p.cash - reserve - cost);
+      const capNow = capacityOf(p);
+      const capAfter = Math.min(capNow.tables, (p.staff + f.temp) * CFG.perStaff, p.ingr + f.rush);
+      const unknown = cmt[o].nRival, eNone = expectedDemand(p, known.selfReal, 0), eAll = expectedDemand(p, known.selfReal + unknown, 0);
+      return head('应对', '翻牌前临时扩容') + board + `<div class="form">
+        <div class="callout"><b>${esc(nameOf(o))}在你店门口放了 ${unknown} 张牌</b>
+          <span>如果全是空牌：平均来 约 ${ex(eNone.total)} 人。如果全是真牌：平均来 约 ${ex(eAll.total)} 人，最多 ${eAll.max} 人。</span>
+          <span>你现在的产能是 <b>${capNow.cap}</b>（桌子 ${capNow.tables} · 员工 ${capNow.staff} · 食材 ${capNow.ingr}）。</span></div>
+        <div class="field"><div class="txt"><b>临时帮工</b><small>每人 $${R.tempStaff}，只帮今天，多服务 ${CFG.perStaff} 位客人</small></div>${stepper('temp', f.temp, 0, Math.min(R.tempStaffMax, f.temp + Math.floor(left / R.tempStaff)), '临时帮工')}</div>
+        <div class="field"><div class="txt"><b>紧急补货</b><small>每份 $${R.rushIngr}，比市场贵，用不完同样过期</small></div>${stepper('rush', f.rush, 0, Math.min(R.rushIngrMax, f.rush + Math.floor(left / R.rushIngr)), '紧急补货')}</div>
+        <div class="total"><span>扩容花费</span><span>${usd(-cost)} · 扩容后产能 ${capAfter}</span></div>
+        ${reserve ? `<p class="muted" style="font-size:.85rem">已为你的广告牌预留 ${usd(reserve)}，翻牌时扣。</p>` : ''}
+        <div class="row"><button class="btn" data-act="respond">${cost ? '确认扩容' : '不扩容，直接翻牌'}</button></div></div>`;
+    }
+    case 'reveal': return head('翻牌', '揭晓中') + waitHTML(s, '双方都已确认，正在翻牌…');
     case 'voucher': {
       if (!watched()) return openingHTML();
       const v = S.service[s];
@@ -428,7 +477,7 @@ function tick() {
   if (P.idx >= stepsLen()) return render();
   const kinds = ['p1', 'p2'].map(s => (app.S.service[s].steps[P.idx] || {}).k);
   P.idx++; render();
-  const delay = kinds.every(k => !k || k === 'tip') ? 260 : kinds.some(k => k === 'total' || k === 'seat' || k === 'turned') ? 900 : 520;
+  const delay = kinds.some(k => k === 'card' || k === 'total' || k === 'seat' || k === 'turned') ? 900 : 520;
   app.playTimer = setTimeout(tick, delay);
 }
 function stepLine(s, st) {
@@ -443,31 +492,31 @@ function stepLine(s, st) {
     case 'noshow': return li(`预订的客人 <span class="muted mono">掷骰 ${st.roll}（4–6 到场）</span>`, st.arrive ? `<b>${st.choice === 'hold' ? '到场付款' : '到场，但没留座位'}</b>` : '<span class="muted">没来</span>');
     case 'seat': return li(`<b>入座 ${st.served} 位</b> <span class="muted">（产能 ${st.cap}）</span>`, '', 'em');
     case 'turned': return li(`<b class="neg">${st.n} 位客人没有座位，被拒绝</b>`, '', 'em bad');
-    case 'tip': return li(`第 ${st.table} 桌小费 ${pct(st.pct)} <span class="muted mono">（随机 ${pct(st.roll)}，员工 ${st.adj >= 0 ? '+' : '−'}${pct(Math.abs(st.adj))}）</span>`, `<span class="pos">+${usd(st.amt)}</span>`);
-    case 'sum': return li(`<b>餐费 ${usd(st.meals)} · 小费 ${usd(st.tips)}</b>`, '', 'em');
+    case 'card': return li(`翻开第 ${st.n}/${st.of} 张牌 <span class="muted">（${st.from === 'self' ? `${esc(nameOf(s))}自己放的` : `${esc(nameOf(o))}放的`}）</span>`, st.real ? '<b class="pos">真广告</b>' : '<span class="muted">空牌</span>', st.real ? '' : 'blank');
+    case 'sum': return li(`<b>营业收入 ${usd(st.meals)}</b>`, '', 'em');
   }
   return '';
 }
 function feedHTML(s, n) {
   const v = app.S.service[s], shown = v.steps.slice(0, n);
-  let came = 0, seated = '—', tips = 0;
+  let came = 0, seated = '—', turned = 0;
   for (const st of shown) {
     if (st.k === 'base') came += st.n;
     if ((st.k === 'rep' || st.k === 'ad') && st.ok) came++;
     if (st.k === 'lose' && st.ok) came--;
     if (st.k === 'seat') seated = st.served;
-    if (st.k === 'tip') tips += st.amt;
+    if (st.k === 'turned') turned = st.n;
   }
   return `<article class="bill" data-seat="${s}">
     <div class="rest-head"><h2>${esc(nameOf(s))}</h2><span class="muted mono" style="font-size:.8rem">${CFG.loc[app.S.players[s].loc].name} · 产能 ${v.cap}</span></div>
-    <div class="big"><div><span class="label">来客</span><b>${came}</b></div><div><span class="label">入座</span><b>${seated}</b></div><div><span class="label">小费</span><b>${usd(Math.round(tips * 100) / 100)}</b></div></div>
+    <div class="big"><div><span class="label">来客</span><b>${came}</b></div><div><span class="label">入座</span><b>${seated}</b></div><div class="${turned ? 'bad' : ''}"><span class="label">拒绝</span><b>${turned}</b></div></div>
     <ul class="lines feed">${shown.map(st => stepLine(s, st)).reverse().join('') || '<li class="muted"><span>正在开门…</span><span></span></li>'}</ul>
   </article>`;
 }
 function openingHTML() {
   const S = app.S, P = app.playing && app.playing.key === playKey() ? app.playing : null;
   const head = `<div class="ticket-head"><h2>第 ${S.round} 天 · 开始营业</h2><span class="label">${P ? (P.idx >= stepsLen() ? '营业结束' : '营业中') : '准备开门'}</span></div>`;
-  if (!P) return head + `<p class="muted">双方的广告已经揭晓。点“开始营业”，逐个看客人来不来、坐不坐得下、每桌给多少小费。</p>
+  if (!P) return head + `<p class="muted">双方店门口的牌都准备好了。点“开始营业”，一张张翻牌，再看客人来不来、坐不坐得下。</p>
     <div class="row"><button class="btn" data-act="play">开始营业</button><button class="btn ghost" data-act="skip">直接看账单</button></div>`;
   const order = app.mode === 'online' ? [app.me, app.me === 'p1' ? 'p2' : 'p1'] : ['p1', 'p2'];
   const done = P.idx >= stepsLen();
@@ -490,16 +539,14 @@ function billHTML(s) {
   const extra = [];
   if (v.noshow) extra.push(`预订掷骰 ${v.noshow.roll}：${v.noshow.arrive ? '客人到场' : '客人没来'}`);
   if (v.inspection) extra.push(`可疑交易检查掷骰 ${v.inspection.roll}：${v.inspection.caught ? '被检查员发现' : '平安无事'}`);
-  if (S.reveals[s] && S.reveals[s].ok === false) extra.push('广告记录校验失败，本回合广告按 0 张计算');
+  if (S.reveals[s] && S.reveals[s].ok === false) extra.push('放牌记录校验失败，这家店的牌都按空牌计算');
   return `<article class="bill" data-seat="${s}">
     <div class="rest-head"><h2>${esc(nameOf(s))}</h2><span class="muted mono" style="font-size:.8rem">${CFG.loc[p.loc].name}</span></div>
     <div class="big"><div><span class="label">来客</span><b>${v.demand}</b></div><div><span class="label">接待</span><b>${v.served}</b></div><div class="${v.turned ? 'bad' : ''}"><span class="label">拒绝</span><b>${v.turned}</b></div></div>
     <div class="eq"><span class="k">来客</span><span>基础 ${v.base}${v.repGain ? ` + 声誉 ${v.repGain}` : ''}${v.repLoss ? ` − 声誉流失 ${v.repLoss}` : ''} + 自己广告 ${v.adSelfIn} + ${esc(nameOf(o))}送来 ${v.adRivalIn} = ${v.demand}</span>
-      <span class="muted">自己投 ${v.adsSelf} 张，${esc(nameOf(o))}投给这里 ${v.adsRival} 张</span></div>
+      <span class="muted">店门口：${esc(nameOf(s))}放了真 ${v.cards.mine.real} 空 ${v.cards.mine.blank}，${esc(nameOf(o))}放了真 ${v.cards.theirs.real} 空 ${v.cards.theirs.blank}</span></div>
     <div class="eq"><span class="k">产能</span><span>桌子 ${v.tables} · 员工 ${v.staff} · 食材 ${v.ingr} → 取最小 ${v.cap}</span>
       ${v.limits.length ? `<span class="neg">卡在：${v.limits.map(x => limName[x]).join('、')}</span>` : v.cap > v.demand ? `<span class="muted">还空着 ${v.cap - v.demand} 个位置</span>` : ''}</div>
-    <div class="eq"><span class="k">收入</span><span>餐费 ${usd(v.meals)} + 小费 ${usd(v.tips)}</span>
-      <span class="muted">员工忙碌度 ${pct(v.load)}，小费比例 ${v.adj >= 0 ? '+' : '−'}${pct(Math.abs(v.adj))}</span></div>
     ${rep}
     ${extra.length ? `<div class="eq">${extra.map(x => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
     <ul class="lines">${lines}<li><b>当前现金</b><b class="mono">${usd(p.cash)}</b></li></ul>
@@ -574,7 +621,8 @@ document.addEventListener('click', e => {
     case 'event': return act(s, { k, choice: b.dataset.c });
     case 'invest': { const f = F({}); return act(s, { k, tables: f.tables || 0, hire: f.hire || 0, fire: f.fire || 0, loan: !!f.loan }); }
     case 'buy': return act(s, { k, n: Number(b.dataset.n) });
-    case 'commit': { const f = F({}); return commitAds(s, k, f.self || 0, f.rival || 0); }
+    case 'commit': { const f = F({}); return commitCards(s, k, { selfReal: f.sr || 0, selfBlank: f.sb || 0, rivalReal: f.rr || 0, rivalBlank: f.rb || 0 }); }
+    case 'respond': { const f = F({}); return act(s, { k, temp: f.temp || 0, rush: f.rush || 0 }); }
     case 'voucher': { const f = F({}); return act(s, { k, n: f.n || 0 }); }
     case 'next': return act(s, { k });
   }
