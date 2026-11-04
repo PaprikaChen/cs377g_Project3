@@ -12,7 +12,7 @@ function bot(S, seat, rnd, priv) {
       priv[seat] = { ...c, salt };
       return { k, h: E.adHash(c, salt), nSelf: c.selfReal + c.selfBlank, nRival: c.rivalReal + c.rivalBlank };
     }
-    case 'respond': return { k, rush: Math.floor(rnd() * 3) };
+    case 'respond': return { k, tempTables: Math.floor(rnd() * 2), rush: Math.floor(rnd() * 3) };
     case 'reveal': return { k, ...(rnd() < 0.03 ? { ...priv[seat], selfReal: 3 } : priv[seat]) };
     case 'voucher': return { k, n: Math.floor(rnd() * 3) };
     case 'report': return { k };

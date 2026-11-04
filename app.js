@@ -310,7 +310,7 @@ function restHTML(s) {
       <div class="stat"><span class="label">每桌收入</span><b>${L ? '$' + L.price : '—'}</b></div>
     </div>
     ${L && live ? `<div class="capline">
-      <div class="res ${lim('tables')}"><span class="label">桌子</span><b>${c.tables}</b>${p.held ? `<span class="muted">另 ${p.held} 张保留</span>` : ''}</div>
+      <div class="res ${lim('tables')}"><span class="label">桌子</span><b>${c.tables}</b>${p.tempTables ? `<span class="muted">含临时 ${p.tempTables} 张</span>` : ''}${p.held ? `<span class="muted">另 ${p.held} 张保留</span>` : ''}</div>
       <div class="res ${lim('ingr')}"><span class="label">食材</span><b>${c.ingr}</b></div>
     </div>
     <div class="forecast"><span>广告前预计 约 <b class="mono">${ex(demand)}</b> 人 <span class="muted">（${E.min}–${E.max}）</span></span><span>今日产能 <b class="mono">${c.cap}</b> 人</span></div>` : ''}
@@ -409,7 +409,7 @@ function actionHTML() {
         <div class="callout"><b>算一算（只算你放的真牌）</b>
           <span>${esc(nameOf(o))}：预计 约 ${ex(eO.total)} 人（${eO.min}–${eO.max}），${desc(eO, co.cap)}。</span>
           <span>你：预计 约 ${ex(eM.total)} 人（${eM.min}–${eM.max}），${desc(eM, cm.cap)}。</span>
-          <span class="muted">放完牌后双方都有一次紧急补货的机会，对手会看到你在他店门口放了几张。</span></div>
+          <span class="muted">放完牌后双方都有一次临时加桌、紧急补货的机会，对手会看到你在他店门口放了几张。</span></div>
         <div class="row"><button class="btn" data-act="commit">背面朝上放牌</button></div></div>`;
     }
     case 'respond': {
@@ -417,23 +417,24 @@ function actionHTML() {
       const board = `<div class="fronts">
         <div><span class="label">你的店门口</span>${frontHTML(s, s)}</div>
         <div><span class="label">${esc(nameOf(o))}的店门口</span>${frontHTML(o, s)}</div></div>`;
-      if (!k) return head('应对', '翻牌前紧急补货') + board + waitHTML(s);
-      const f = F({ rush: 0 }), R = CFG.respond;
-      const reserve = adCost(known), cost = f.rush * R.rushIngr, left = Math.max(0, p.cash - reserve - cost);
-      const capNow = capacityOf(p);
-      const capAfter = Math.min(capNow.tables, p.ingr + f.rush);
+      if (!k) return head('应对', '翻牌前临时扩容') + board + waitHTML(s);
+      const f = F({ tt: 0, rush: 0 }), R = CFG.respond;
+      const reserve = adCost(known), cost = f.tt * R.tempTable + f.rush * R.rushIngr, left = Math.max(0, p.cash - reserve - cost);
+      const capNow = capacityOf(p), tablesAfter = capNow.tables + f.tt, ingrAfter = p.ingr + f.rush;
+      const capAfter = Math.min(tablesAfter, ingrAfter);
       const unknown = cmt[o].nRival, eNone = expectedDemand(p, known.selfReal, 0), eAll = expectedDemand(p, known.selfReal + unknown, 0);
-      return head('应对', '翻牌前紧急补货') + board + `<div class="form">
+      return head('应对', '翻牌前临时扩容') + board + `<div class="form">
         <div class="callout"><b>${esc(nameOf(o))}在你店门口放了 ${unknown} 张牌</b>
           <span>如果全是空牌：平均来 约 ${ex(eNone.total)} 人。如果全是真牌：平均来 约 ${ex(eAll.total)} 人（多出 ${unknown * CFG.ad.customers} 人），最多 ${eAll.max} 人。</span>
           <span>你现在的产能是 <b>${capNow.cap}</b>（桌子 ${capNow.tables} · 食材 ${capNow.ingr}）。</span></div>
+        <div class="field"><div class="txt"><b>临时加桌</b><small>每张 $${R.tempTable}，只用今天</small></div>${stepper('tt', f.tt, 0, Math.min(R.tempTableMax, f.tt + Math.floor(left / R.tempTable)), '临时加桌')}</div>
         <div class="field"><div class="txt"><b>紧急补货</b><small>每份 $${R.rushIngr}，比市场贵，用不完同样过期</small></div>${stepper('rush', f.rush, 0, Math.min(R.rushIngrMax, f.rush + Math.floor(left / R.rushIngr)), '紧急补货')}</div>
-        <div class="total"><span>补货花费</span><span>${usd(-cost)}</span></div>
-        <div class="capline">${[['tables', '桌子', capNow.tables], ['ingr', '食材', p.ingr + f.rush]].map(([key, label, val]) =>
+        <div class="total"><span>扩容花费</span><span>${usd(-cost)}</span></div>
+        <div class="capline">${[['tables', '桌子', tablesAfter], ['ingr', '食材', ingrAfter]].map(([key, label, val]) =>
           `<div class="res ${val === capAfter ? 'limit' : ''}"><span class="label">${label}</span><b>${val}</b></div>`).join('')}</div>
-        <div class="callout ${capAfter === capNow.cap && cost ? 'warn' : ''}"><span>补货后产能 <b>${capAfter}</b>${capAfter !== capNow.cap ? `（原来 ${capNow.cap}）` : ''}。产能取桌子和食材中较小的那个，红框是现在卡住的一项${capAfter === capNow.tables ? '；桌子不能临时增加，再多补货也坐不下更多客人' : ''}。</span></div>
+        <div class="callout ${capAfter === capNow.cap && cost ? 'warn' : ''}"><span>扩容后产能 <b>${capAfter}</b>${capAfter !== capNow.cap ? `（原来 ${capNow.cap}）` : ''}。产能取桌子和食材中较小的那个，红框是现在卡住的一项，只加另一项不会提高产能。</span></div>
         ${reserve ? `<p class="muted" style="font-size:.85rem">已为你的广告牌预留 ${usd(reserve)}，翻牌时扣。</p>` : ''}
-        <div class="row"><button class="btn" data-act="respond">${cost ? '确认补货' : '不补货，直接翻牌'}</button></div></div>`;
+        <div class="row"><button class="btn" data-act="respond">${cost ? '确认扩容' : '不扩容，直接翻牌'}</button></div></div>`;
     }
     case 'reveal': return head('翻牌', '揭晓中') + waitHTML(s, '双方都已确认，正在翻牌…');
     case 'voucher': {
@@ -619,7 +620,7 @@ document.addEventListener('click', e => {
     case 'invest': { const f = F({}); return act(s, { k, tables: f.tables || 0, hire: f.hire || 0, fire: f.fire || 0, loan: !!f.loan }); }
     case 'buy': return act(s, { k, n: Number(b.dataset.n) });
     case 'commit': { const f = F({}); return commitCards(s, k, { selfReal: f.sr || 0, selfBlank: f.sb || 0, rivalReal: f.rr || 0, rivalBlank: f.rb || 0 }); }
-    case 'respond': { const f = F({}); return act(s, { k, rush: f.rush || 0 }); }
+    case 'respond': { const f = F({}); return act(s, { k, tempTables: f.tt || 0, rush: f.rush || 0 }); }
     case 'voucher': { const f = F({}); return act(s, { k, n: f.n || 0 }); }
     case 'next': return act(s, { k });
   }

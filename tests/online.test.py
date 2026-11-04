@@ -32,6 +32,7 @@ async def main():
                 if ph=='respond' and await pg.locator('[data-act=respond]').count():
                     if pg is A and not shot: await pg.screenshot(path='/tmp/respond.png', full_page=True)
                     await pg.locator('[data-act=inc][data-f=rush][data-d="1"]').click()
+                    await pg.locator('[data-act=inc][data-f=tt][data-d="1"]').click()
                 for s in SEL:
                     if await pg.locator(s).count():
                         await pg.locator(s).first.click(); break

@@ -17,8 +17,9 @@ const CFG = {
   //                   每低于 3 星一颗，有 perStar 位基础客人各按 loseChance 的概率不来
   rep: { perStar: 2, chance: 0.5, loseChance: 0.5 },
   // 翻牌前的临时扩容（价格待定，只在当天有效）
+  //   tempTable 临时加桌，每张的价格（只用当天）；tempTableMax 每天最多加几张
   //   rushIngr 紧急补货，每份食材的价格；rushIngrMax 每天最多补几份
-  respond: { rushIngr: 3, rushIngrMax: 8 },
+  respond: { tempTable: 4, tempTableMax: 4, rushIngr: 3, rushIngrMax: 8 },
   market: { stock: 24, tiers: [[8, 1], [16, 2], [24, 3]], maxPerTurn: 3 },
   voucher: 3,
   // 贷款（暂时关闭）：enabled 改成 true 就恢复——投资时可以主动贷款，付不起开支时自动贷款
@@ -69,7 +70,7 @@ function maxAffordable(sold, cash, cap) {
 const intIn = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v) || 0)));
 
 function newPlayer() {
-  return { loc: null, cash: CFG.startCash, stars: CFG.startStars, tables: 0,
+  return { loc: null, cash: CFG.startCash, stars: CFG.startStars, tables: 0, tempTables: 0,
     ingr: 0, loan: false, shadyFrom: null, bankrupt: false, held: 0, ledger: [], history: [] };
 }
 function money(p, label, amt) { p.cash = round2(p.cash + amt); p.ledger.push({ label, amt: round2(amt) }); }
@@ -86,7 +87,7 @@ function expectedDemand(p, realCards = 0, unknownCards = 0) {
     max: CFG.baseDemand + (d > 0 ? d * per : 0) + (realCards + unknownCards) * CFG.ad.customers };
 }
 function capacityOf(p) {
-  const t = Math.max(0, p.tables - p.held), i = p.ingr;
+  const t = Math.max(0, p.tables + p.tempTables - p.held), i = p.ingr;
   return { tables: t, ingr: i, cap: Math.min(t, i) };
 }
 
@@ -108,7 +109,7 @@ function startRound(S) {
   S.round++;
   for (const s of SEATS) {
     const p = S.players[s], L = CFG.loc[p.loc];
-    p.ledger = []; p.held = 0;
+    p.ledger = []; p.held = 0; p.tempTables = 0;
     money(p, '房租', -L.rent);
     p.ingr = L.free;
     if (L.free) note(p, `本地农场免费食材 ${L.free} 份`);
@@ -315,6 +316,8 @@ function apply(S, got) {
       const R = CFG.respond;
       for (const s of SEATS) {
         const p = S.players[s], a = got[s];
+        const tt = Math.min(intIn(a.tempTables, 0, R.tempTableMax), Math.floor(Math.max(0, p.cash) / R.tempTable));
+        if (tt) { money(p, `临时加桌 ${tt} 张`, -tt * R.tempTable); p.tempTables = tt; }
         const rush = Math.min(intIn(a.rush, 0, R.rushIngrMax), Math.floor(Math.max(0, p.cash) / R.rushIngr));
         if (rush) { money(p, `紧急补货 ${rush} 份`, -rush * R.rushIngr); p.ingr += rush; }
       }

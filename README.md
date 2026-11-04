@@ -58,7 +58,7 @@ python3 -m http.server 8000
 
 - `loc.country` / `loc.city`：开店费、房租、初始桌子、每桌收入 `price`、免费食材
 - `ad`：真牌价格 `real`、空牌价格 `blank`、每张真牌一定带来的客人数 `customers`、每家店门口最多几张 `maxPerShop`
-- `respond`：翻牌前紧急补货的价格与每天上限
+- `respond`：翻牌前临时加桌、紧急补货的价格与每天上限
 - `rep`：声誉带来的潜在客人数和到店概率、低声誉时老客人流失的概率
 - `market`：每天库存 24 份和三档价格
 - `voucher`：补偿券价格
