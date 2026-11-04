@@ -220,6 +220,7 @@ const PHASES = [['event', 'Event'], ['invest', 'Build'], ['market', 'Market'], [
 const phaseIdx = p => ({ event: 0, invest: 1, market: 2, commit: 3, respond: 4, reveal: 5, voucher: 5, report: 6 })[p] ?? -1;
 
 function render() {
+  if (app.mode === 'local') document.body.dataset.view = app.view; else delete document.body.dataset.view;
   renderBar();
   const root = $('#app');
   if (!app.mode) { root.innerHTML = lobbyHTML(); return; }
@@ -296,14 +297,14 @@ function frontHTML(shop, viewerSeat) {
 }
 
 function restHTML(s) {
-  const S = app.S, p = S.players[s], L = p.loc && CFG.loc[p.loc];
-  const c = capacityOf(p), E = expectedDemand(p), demand = E.total;
+  const S = app.S, p = S.players[s], L = p.loc && CFG.loc[p.loc], own = s === viewer();
+  const c = publicCapacity(s), E = expectedDemand(p), demand = E.total;
   const live = ['event', 'invest', 'market', 'commit', 'respond', 'reveal'].includes(S.phase);
   const lim = k => (L && live && c[k] === c.cap && demand > c.cap ? 'limit' : '');
   const flags = [];
   if (p.loan) flags.push(`<span class="flag">Loan (repay $${CFG.loan.repay})</span>`);
-  if (p.shadyFrom !== null) flags.push('<span class="flag bad">Took the shady deal</span>');
-  if (p.held) flags.push(`<span class="flag">${p.held} tables held for a booking</span>`);
+  if (own && p.shadyFrom !== null) flags.push('<span class="flag bad">Took the shady deal</span>');
+  if (own && p.held) flags.push(`<span class="flag">${p.held} tables held for a booking</span>`);
   return `<article class="rest" data-seat="${s}">
     <div class="rest-head"><h2>${L ? `${L.name} <span class="muted mono" style="font-size:.85rem">${L.tag}</span>` : 'No shop yet'}</h2><span class="who">${app.mode === 'local' ? seatTag(s) : `${esc(nameOf(s))} · ${seatTag(s)}`}</span></div>
     <div class="stats">
@@ -312,7 +313,7 @@ function restHTML(s) {
       <div class="stat"><span class="label">Per table</span><b>${L ? '$' + L.price : '—'}</b></div>
     </div>
     ${L && live ? `<div class="capline">
-      <div class="res ${lim('tables')}"><span class="label">Tables</span><b>${c.tables}</b>${p.tempTables ? `<span class="muted">${p.tempTables} pop-up</span>` : ''}${p.held ? `<span class="muted">+${p.held} held</span>` : ''}</div>
+      <div class="res ${lim('tables')}"><span class="label">Tables</span><b>${c.tables}</b>${p.tempTables ? `<span class="muted">${p.tempTables} pop-up</span>` : ''}${own && p.held ? `<span class="muted">+${p.held} held</span>` : ''}</div>
       <div class="res ${lim('ingr')}"><span class="label">Food</span><b>${c.ingr}</b></div>
     </div>
     <div class="forecast"><span>Expect ~<b class="mono">${ex(demand)}</b> <span class="muted">(${E.min}–${E.max})</span></span><span>Can serve <b class="mono">${c.cap}</b></span></div>` : ''}
@@ -332,17 +333,25 @@ function stepper(field, val, min, max, label) {
   return `<div class="step" role="group" aria-label="${esc(label)}"><button type="button" data-act="inc" data-f="${field}" data-d="-1" ${val <= min ? 'disabled' : ''} aria-label="less">−</button><output>${val}</output><button type="button" data-act="inc" data-f="${field}" data-d="1" ${val >= max ? 'disabled' : ''} aria-label="more">+</button></div>`;
 }
 
+// Events are private: only the player they happen to ever sees them (or their choice).
 function eventHTML() {
-  const S = app.S, e = S.event; if (!e) return '';
-  if (e.type === 'quiet') return `<div class="event"><span class="label">Today</span><b>Quiet day</b><span class="muted">Nothing special.</span></div>`;
-  const t = esc(nameOf(e.seat));
-  if (e.type === 'shady') return `<div class="event"><span class="label">Today · ${t}</span><b>A shady offer</b>
+  const S = app.S, e = S.event;
+  if (!e || !e.seat || e.seat !== viewer()) return '';
+  const secret = '<span class="muted">Only you can see this.</span>';
+  if (e.type === 'shady') return `<div class="event"><span class="label">Today · just you</span><b>A shady offer</b>
     <span>Take $${CFG.shady.cash} now. Every day after, there's a 1 in 6 chance an inspector catches you: −$${CFG.shady.fine} and −1 star.</span>
-    <span class="muted">Goes to whoever has less cash.${e.choice ? ` They <b>${e.choice === 'accept' ? 'took it' : 'passed'}</b>.` : ''}</span></div>`;
-  return `<div class="event"><span class="label">Today · ${t}</span><b>Someone booked ${CFG.noshow.tables} tables</b>
+    ${e.choice ? `<span class="muted">You <b>${e.choice === 'accept' ? 'took it' : 'passed'}</b>.</span>` : secret}</div>`;
+  return `<div class="event"><span class="label">Today · just you</span><b>Someone booked ${CFG.noshow.tables} tables</b>
     <span>Hold them: they sit empty unless the party shows (50%), then you get $${CFG.noshow.pay}. Release them: use the tables, but if the party shows (50%) you lose a star.</span>
-    <span class="muted">Goes to whoever has more cash. The rival sees the choice before placing ads.${e.choice ? ` They <b>${e.choice === 'hold' ? 'held' : 'released'}</b>.` : ''}</span></div>`;
+    ${e.choice ? `<span class="muted">You <b>${e.choice === 'hold' ? 'held them' : 'released them'}</b>.</span>` : secret}</div>`;
 }
+// What the viewer may know about a shop's seats: a rival's held tables stay hidden.
+function publicCapacity(s) {
+  const p = app.S.players[s];
+  return capacityOf(s === viewer() ? p : { ...p, held: 0 });
+}
+const PRIVATE_LINES = ['Shady deal', 'Reservation paid', 'Inspector fine'];
+const PRIVATE_WHY = ['reservation had no seat −1', 'inspector −1'];
 
 function actionHTML() {
   const S = app.S, s = viewer(), k = S.waiting[s], p = S.players[s], o = s === 'p1' ? 'p2' : 'p1';
@@ -359,7 +368,7 @@ function actionHTML() {
     }
     case 'event': {
       const e = S.event;
-      if (!k) return head('Today') + eventHTML() + waitHTML(s, `${esc(nameOf(e.seat))} is deciding…`);
+      if (!k) return head('Get ready') + waitHTML(s);
       const btns = e.type === 'shady'
         ? `<button class="btn" data-act="event" data-c="accept">Take it (+$${CFG.shady.cash})</button><button class="btn ghost" data-act="event" data-c="decline">Pass</button>`
         : `<button class="btn" data-act="event" data-c="hold">Hold the tables</button><button class="btn ghost" data-act="event" data-c="release">Release them</button>`;
@@ -398,7 +407,7 @@ function actionHTML() {
       const f = F({ sr: 0, sb: 0, rr: 0, rb: 0 }), A = CFG.ad, m = A.maxPerShop;
       const c = { selfReal: f.sr, selfBlank: f.sb, rivalReal: f.rr, rivalBlank: f.rb }, cost = adCost(c), left = Math.max(0, p.cash - cost);
       const row = (field, val, label, price, others) => `<div class="field"><div class="txt"><b>${label}</b><small>$${price} each</small></div>${stepper(field, val, 0, Math.min(m - others, val + Math.floor(left / price)), label)}</div>`;
-      const po = S.players[o], co = capacityOf(po), cm = capacityOf(p);
+      const po = S.players[o], co = publicCapacity(o), cm = capacityOf(p);
       const eO = expectedDemand(po, f.rr), eM = expectedDemand(p, f.sr);
       const desc = (e, cap) => { const room = cap - e.total; return room >= 0 ? `seats ${cap}, ~<b>${ex(room)}</b> spare` : `seats ${cap}, ~<b>${ex(-room)}</b> too many`; };
       return head('Ads', 'face down') + `<div class="form">
@@ -497,7 +506,7 @@ function stepLine(s, st) {
   return '';
 }
 function feedHTML(s, n) {
-  const v = app.S.service[s], shown = v.steps.slice(0, n);
+  const v = app.S.service[s], shown = v.steps.slice(0, n).filter(st => s === viewer() || st.k !== 'noshow');
   let came = 0, seated = '—', turned = 0;
   for (const st of shown) {
     if (st.k === 'base') came += st.n;
@@ -530,15 +539,17 @@ function billsHTML() {
   return `<div class="bills">${order.map(s => billHTML(s)).join('')}</div>`;
 }
 function billHTML(s) {
-  const S = app.S, v = S.service[s], p = S.players[s], o = s === 'p1' ? 'p2' : 'p1';
+  const S = app.S, v = S.service[s], p = S.players[s], o = s === 'p1' ? 'p2' : 'p1', own = s === viewer();
   const limName = { tables: 'tables', ingr: 'food' };
-  const lines = p.ledger.map(x => `<li><span>${esc(x.label)}</span><span class="${x.amt > 0 ? 'pos' : x.amt < 0 ? 'neg' : 'muted'}">${x.amt === null ? '' : (x.amt > 0 ? '+' : '') + usd(x.amt)}</span></li>`).join('');
+  const label = x => (!own && PRIVATE_LINES.includes(x.label) ? 'Other' : x.label);
+  const why = (v.why || []).map(w => (!own && PRIVATE_WHY.includes(w) ? 'other −1' : w));
+  const lines = p.ledger.map(x => `<li><span>${esc(label(x))}</span><span class="${x.amt > 0 ? 'pos' : x.amt < 0 ? 'neg' : 'muted'}">${x.amt === null ? '' : (x.amt > 0 ? '+' : '') + usd(x.amt)}</span></li>`).join('');
   const rep = v.starsAfter !== undefined
-    ? `<div class="eq"><span class="k">Stars</span><span>${v.starsBefore} → ${v.starsAfter} · ${esc((v.why || []).join(', '))}</span></div>`
+    ? `<div class="eq"><span class="k">Stars</span><span>${v.starsBefore} → ${v.starsAfter} · ${esc(why.join(', '))}</span></div>`
     : `<div class="eq"><span class="k">Stars</span><span>updated at recap</span></div>`;
   const extra = [];
-  if (v.noshow) extra.push(`Booking rolled ${v.noshow.roll}: ${v.noshow.arrive ? 'showed' : 'no-show'}`);
-  if (v.inspection) extra.push(`Inspector rolled ${v.inspection.roll}: ${v.inspection.caught ? 'caught!' : 'safe'}`);
+  if (own && v.noshow) extra.push(`Booking rolled ${v.noshow.roll}: ${v.noshow.arrive ? 'showed' : 'no-show'}`);
+  if (own && v.inspection) extra.push(`Inspector rolled ${v.inspection.roll}: ${v.inspection.caught ? 'caught!' : 'safe'}`);
   if (S.reveals[s] && S.reveals[s].ok === false) extra.push("Card check failed, so this player's cards count as bluffs");
   return `<article class="bill" data-seat="${s}">
     <div class="rest-head"><h2>${esc(nameOf(s))}</h2><span class="muted mono" style="font-size:.8rem">${CFG.loc[p.loc].name}</span></div>
@@ -584,11 +595,11 @@ function gameHTML() {
   const S = app.S;
   const order = app.mode === 'online' ? [app.me, app.me === 'p1' ? 'p2' : 'p1'] : ['p1', 'p2'];
   const waitingOther = app.mode === 'online' && S.phase === 'pick' && !(app.seats.p2 && app.seats.p2.uid);
-  const showEvent = S.event && ['invest', 'market', 'commit', 'reveal'].includes(S.phase);
+  const showEvent = S.event && S.event.seat === viewer() && ['invest', 'market', 'commit', 'respond', 'reveal'].includes(S.phase);
   return `<div class="grid">
     <div class="stack">
       ${waitingOther ? `<div class="callout warn"><b>Waiting for a rival</b><span>Send them the code <b class="mono">${esc(app.code)}</b>.</span></div>` : ''}
-      ${app.mode === 'local' ? `<div class="callout"><span>Playing as <b>${seatTag(app.view)}</b>. Switches automatically.</span></div>` : ''}
+      ${app.mode === 'local' ? `<div class="viewbar" data-seat="${app.view}">Playing as ${seatTag(app.view)} · switches automatically, look away when it's not your turn</div>` : ''}
       ${showEvent ? eventHTML() : ''}
       <section class="ticket" id="action">${actionHTML()}</section>
     </div>
