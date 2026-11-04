@@ -20,7 +20,9 @@ const CFG = {
   //   tempStaff 临时帮工，每人能多服务 perStaff 位客人；rushIngr 紧急补货，每份食材的价格
   respond: { tempStaff: 6, tempStaffMax: 3, rushIngr: 3, rushIngrMax: 8 },
   market: { stock: 24, tiers: [[8, 1], [16, 2], [24, 3]], maxPerTurn: 3 },
-  voucher: 3, loan: { amount: 30, repay: 40 },
+  voucher: 3,
+  // 贷款（暂时关闭）：enabled 改成 true 就恢复——投资时可以主动贷款，付不起开支时自动贷款
+  loan: { enabled: false, amount: 30, repay: 40 },
   starValue: 10, shady: { cash: 15, fine: 20 }, noshow: { pay: 30, tables: 2 }
 };
 const round2 = x => Math.round(x * 100) / 100;
@@ -111,7 +113,7 @@ function startRound(S) {
     money(p, `工资（${p.staff} 名员工）`, -p.staff * CFG.wage);
     p.ingr = L.free;
     if (L.free) note(p, `本地农场免费食材 ${L.free} 份`);
-    if (p.cash < 0 && !p.loan) { p.loan = true; money(p, '付不起开支，被迫贷款', CFG.loan.amount); }
+    if (p.cash < 0 && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, '付不起开支，被迫贷款', CFG.loan.amount); }
     if (p.cash < 0) p.bankrupt = true;
   }
   if (S.players.p1.bankrupt || S.players.p2.bankrupt) return finish(S, 'bankrupt');
@@ -277,7 +279,7 @@ function apply(S, got) {
     case 'invest': {
       for (const s of SEATS) {
         const p = S.players[s], a = got[s];
-        if (a.loan && !p.loan) { p.loan = true; money(p, '贷款', CFG.loan.amount); }
+        if (a.loan && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, '贷款', CFG.loan.amount); }
         const room = CFG.maxTables - p.tables;
         const t = Math.min(intIn(a.tables, 0, room), Math.floor(Math.max(0, p.cash) / CFG.tableCost));
         if (t) { money(p, `新增 ${t} 张桌子`, -t * CFG.tableCost); p.tables += t; }

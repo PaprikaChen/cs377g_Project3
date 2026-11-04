@@ -377,7 +377,7 @@ function actionHTML() {
         <div class="field"><div class="txt"><b>新增桌子</b><small>每张 $${CFG.tableCost}，永久有效。现有 ${p.tables} 张</small></div>${stepper('tables', f.tables, 0, maxT, '新增桌子')}</div>
         <div class="field"><div class="txt"><b>雇用员工</b><small>今天就上岗，从明天起每天多付 $${CFG.wage} 工资。现有 ${p.staff} 人</small></div>${stepper('hire', f.hire, 0, CFG.maxStaff - p.staff + f.fire, '雇用员工')}</div>
         <div class="field"><div class="txt"><b>解雇员工</b><small>至少保留 1 人</small></div>${stepper('fire', f.fire, 0, p.staff - 1 + f.hire, '解雇员工')}</div>
-        ${p.loan ? '' : `<label class="field toggle" for="loan-in"><div class="txt"><b>申请贷款</b><small>立即得到 $${CFG.loan.amount}，结束时还 $${CFG.loan.repay}。每局只能贷一次</small></div><input type="checkbox" id="loan-in" data-act="loan" ${f.loan ? 'checked' : ''}></label>`}
+        ${p.loan || !CFG.loan.enabled ? '' : `<label class="field toggle" for="loan-in"><div class="txt"><b>申请贷款</b><small>立即得到 $${CFG.loan.amount}，结束时还 $${CFG.loan.repay}。每局只能贷一次</small></div><input type="checkbox" id="loan-in" data-act="loan" ${f.loan ? 'checked' : ''}></label>`}
         <div class="total"><span>本次花费</span><span>${usd(-cost)} · 剩余 ${usd(cashAfterLoan - cost)}</span></div>
         <div class="callout">投资后，不算食材的产能上限：桌子 ${p.tables - p.held + f.tables} 张、员工可服务 ${staffAfter * CFG.perStaff} 人，取较小值 <b>${capAfter}</b> 人。明天工资 ${usd(-staffAfter * CFG.wage)}。</div>
         <div class="row"><button class="btn" data-act="invest">确认投资</button></div></div>`;
