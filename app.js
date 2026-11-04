@@ -1,8 +1,9 @@
 // ===== Page: lobby, online sync through Firebase (Firestore + anonymous sign-in), local test mode =====
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const usd = n => (n < 0 ? '−$' : '$') + Math.abs(n);
-const sgn = n => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n);
+const usd = n => { const v = Math.abs(n), t = Number.isInteger(v) ? String(v) : v.toFixed(2); return (n < 0 ? '−$' : '$') + t; };
+const ex = n => String(Math.round(n * 10) / 10); // 期望人数保留一位小数
+const pct = x => Math.round(x * 100) + '%';
 const lsGet = k => { try { return localStorage.getItem('rr:' + k); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem('rr:' + k, v); } catch (e) {} };
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -14,7 +15,7 @@ const app = {
   mode: null, fb: null, uid: null, dbReady: false, dbMsg: '正在连接服务器…',
   code: null, seed: null, seats: {}, logs: { p1: [], p2: [] }, me: null, view: 'p1',
   nick: (lsGet('nick') || '').slice(0, 12), S: null, form: {}, priv: {}, revealing: {}, unsub: [], chain: Promise.resolve(),
-  err: '', busy: false, loadNote: ''
+  err: '', busy: false, loadNote: '', played: {}, playing: null, playTimer: null
 };
 
 window.__rr = app; // 调试用：在浏览器控制台输入 __rr.S 查看当前对局状态
@@ -270,7 +271,7 @@ function starsHTML(n) { return `<span class="stars" aria-label="${n} 星">${'★
 
 function restHTML(s) {
   const S = app.S, p = S.players[s], L = p.loc && CFG.loc[p.loc];
-  const c = capacityOf(p), demand = demandBase(p);
+  const c = capacityOf(p), E = expectedDemand(p), demand = E.total;
   const live = ['event', 'invest', 'market', 'commit', 'reveal'].includes(S.phase);
   const lim = k => (L && live && c[k] === c.cap && demand > c.cap ? 'limit' : '');
   const flags = [];
@@ -280,16 +281,16 @@ function restHTML(s) {
   return `<article class="rest" data-seat="${s}">
     <div class="rest-head"><h2>${L ? `${L.name} <span class="muted mono" style="font-size:.85rem">${L.tag}</span>` : '尚未开店'}</h2><span class="who">${app.mode === 'local' ? seatTag(s) : `${esc(nameOf(s))} · ${seatTag(s)}`}</span></div>
     <div class="stats">
-      <div class="stat"><span class="label">现金</span><b>${usd(p.cash)}</b></div>
+      <div class="stat"><span class="label">现金</span><b>${['voucher', 'report'].includes(S.phase) && S.service && !watched() ? '<span class="muted" style="font-size:.85rem">营业中…</span>' : usd(p.cash)}</b></div>
       <div class="stat"><span class="label">声誉</span>${starsHTML(p.stars)}</div>
-      <div class="stat"><span class="label">单客收入</span><b>${L ? '$' + L.price : '—'}</b></div>
+      <div class="stat"><span class="label">每桌餐费</span><b>${L ? '$' + L.price : '—'}</b>${L ? `<span class="muted" style="font-size:.75rem">小费 ${pct(L.tip[0])}–${pct(L.tip[1])}</span>` : ''}</div>
     </div>
     ${L && live ? `<div class="capline">
       <div class="res ${lim('tables')}"><span class="label">桌子</span><b>${c.tables}</b>${p.held ? `<span class="muted">另 ${p.held} 张保留</span>` : ''}</div>
       <div class="res ${lim('staff')}"><span class="label">员工 ×3</span><b>${c.staff}</b><span class="muted">${p.staff} 人</span></div>
       <div class="res ${lim('ingr')}"><span class="label">食材</span><b>${c.ingr}</b></div>
     </div>
-    <div class="forecast"><span>广告前预计需求 <b class="mono">${demand}</b> 人</span><span>今日产能 <b class="mono">${c.cap}</b> 人</span></div>` : ''}
+    <div class="forecast"><span>广告前预计 约 <b class="mono">${ex(demand)}</b> 人 <span class="muted">（${E.min}–${E.max}）</span></span><span>今日产能 <b class="mono">${c.cap}</b> 人</span></div>` : ''}
     ${L && !live ? `<div class="forecast"><span>桌子 <b class="mono">${p.tables}</b> 张</span><span>员工 <b class="mono">${p.staff}</b> 人</span></div>` : ''}
     ${flags.length ? `<div class="flags">${flags.join('')}</div>` : ''}
   </article>`;
@@ -326,9 +327,9 @@ function actionHTML() {
       const card = loc => { const L = CFG.loc[loc]; return `<button class="pick" data-act="pick" data-loc="${loc}">
         <span class="row" style="justify-content:space-between"><b style="font-size:1.1rem">${L.name}</b><span class="mono muted">${L.tag}</span></span>
         <dl><dt>开店费用</dt><dd>$${L.open}</dd><dt>每天房租</dt><dd>$${L.rent}</dd><dt>初始桌子</dt><dd>${L.tables} 张</dd>
-        <dt>单客收入</dt><dd>$${L.price}</dd><dt>每天免费食材</dt><dd>${L.free} 份</dd></dl></button>`; };
+        <dt>每桌餐费</dt><dd>$${L.price}</dd><dt>每桌小费</dt><dd>餐费的 ${pct(L.tip[0])}–${pct(L.tip[1])}</dd><dt>每天免费食材</dt><dd>${L.free} 份</dd></dl></button>`; };
       return head('选择餐厅', `${seatTag(s)} · 起始资金 $${CFG.startCash}`) +
-        `<p class="muted">两家店的基础客流都是每天 ${CFG.baseDemand} 人。每人开局有 ${CFG.startStaff} 名员工、3 星声誉。对手看不到你的选择，直到双方都选好。</p><div class="picks">${card('country')}${card('city')}</div>`;
+        `<p class="muted">两家店每天固定有 ${CFG.baseDemand} 位基础客人，其他客人（声誉、广告带来的）都要看运气。每桌小费是餐费的随机比例，员工越清闲小费越高。每人开局有 ${CFG.startStaff} 名员工、3 星声誉。对手看不到你的选择，直到双方都选好。</p><div class="picks">${card('country')}${card('city')}</div>`;
     }
     case 'event': {
       const e = S.event;
@@ -364,8 +365,8 @@ function actionHTML() {
       }).join('');
       const board = `<div class="board" aria-label="市场剩余 ${left} 份">${cells}</div>
         <div class="legend"><span><i class="dot" style="background:var(--p1)"></i>${esc(nameOf('p1'))} 买入 ${m.buys.p1} 份</span><span><i class="dot" style="background:var(--p2)"></i>${esc(nameOf('p2'))} 买入 ${m.buys.p2} 份</span><span>剩余 ${left} 份</span></div>`;
-      const need = demandBase(p), capNoIngr = Math.min(p.tables - p.held, p.staff * CFG.perStaff);
-      const info = `<div class="callout">你现在有 <b>${p.ingr}</b> 份食材。广告前预计 ${need} 位客人，桌子和员工最多接待 ${capNoIngr} 人。今天用不完的食材会过期。</div>`;
+      const E = expectedDemand(p), capNoIngr = Math.min(p.tables - p.held, p.staff * CFG.perStaff);
+      const info = `<div class="callout"><span>你现在有 <b>${p.ingr}</b> 份食材。广告前预计 约 ${ex(E.total)} 位客人（${E.min}–${E.max}），桌子和员工最多接待 ${capNoIngr} 人。今天用不完的食材会过期。</span></div>`;
       if (!k) return head('食材市场', m.passed[s] ? '你已停止购买' : '轮流购买') + board + info + waitHTML(s, m.passed[s] ? `等待${esc(nameOf(o))}买完…` : `轮到${esc(nameOf(o))}购买…`);
       const btn = n => { const ok = n <= left && priceOf(m.sold, n) <= p.cash; return `<button class="btn" data-act="buy" data-n="${n}" ${ok ? '' : 'disabled'}>买 ${n} 份 · $${n <= left ? priceOf(m.sold, n) : '—'}</button>`; };
       return head('食材市场', '轮到你') + board + info + `<div class="row">${btn(1)}${btn(2)}${btn(3)}<button class="btn ghost" data-act="buy" data-n="0">不再购买</button></div><p class="muted" style="font-size:.85rem">选择“不再购买”后，今天就不能再买了。</p>`;
@@ -375,32 +376,35 @@ function actionHTML() {
       if (!k) return head('广告', '暗中提交') + waitHTML(s);
       const f = F({ self: 0, rival: 0 });
       const maxTok = Math.floor(Math.max(0, p.cash) / CFG.ad.cost);
-      const po = S.players[o], co = capacityOf(po), cm = capacityOf(p), dO = demandBase(po), dM = demandBase(p);
-      const roomO = co.cap - dO, roomM = cm.cap - dM;
-      const desc = (room) => room >= 0 ? `还能多接 <b>${room}</b> 人` : `已经超出 <b>${-room}</b> 人`;
+      const po = S.players[o], co = capacityOf(po), cm = capacityOf(p);
+      const eO = expectedDemand(po, f.rival), eM = expectedDemand(p, f.self);
+      const per = CFG.ad.customers * CFG.ad.chance;
+      const desc = (e, cap) => { const room = cap - e.total; return room >= 0 ? `产能 ${cap} 人，平均还空 <b>${ex(room)}</b> 个位置` : `产能 ${cap} 人，平均会超出 <b>${ex(-room)}</b> 人`; };
       return head('广告', '暗中提交，同时揭晓') + `<div class="form">
-        <div class="field"><div class="txt"><b>给自己打广告</b><small>每张 $${CFG.ad.cost}，给你带来 ${CFG.ad.customers} 位客人</small></div>${stepper('self', f.self, 0, maxTok - f.rival, '给自己打广告')}</div>
-        <div class="field"><div class="txt"><b>给${esc(nameOf(o))}打广告</b><small>每张 $${CFG.ad.cost}，给对方送去 ${CFG.ad.customers} 位客人</small></div>${stepper('rival', f.rival, 0, maxTok - f.self, '给对手打广告')}</div>
+        <div class="field"><div class="txt"><b>给自己打广告</b><small>每张 $${CFG.ad.cost}，带来 ${CFG.ad.customers} 位潜在客人，每人 ${pct(CFG.ad.chance)} 概率到店（平均 ${ex(per)} 人）</small></div>${stepper('self', f.self, 0, maxTok - f.rival, '给自己打广告')}</div>
+        <div class="field"><div class="txt"><b>给${esc(nameOf(o))}打广告</b><small>每张 $${CFG.ad.cost}，给对方送去 ${CFG.ad.customers} 位潜在客人，每人 ${pct(CFG.ad.chance)} 概率到店</small></div>${stepper('rival', f.rival, 0, maxTok - f.self, '给对手打广告')}</div>
         <div class="total"><span>广告花费</span><span>${usd(-(f.self + f.rival) * CFG.ad.cost)} · 剩余 ${usd(p.cash - (f.self + f.rival) * CFG.ad.cost)}</span></div>
         <div class="callout"><b>算一算</b>
-          <span>${esc(nameOf(o))}：广告前预计 ${dO} 人，产能 ${co.cap} 人，${desc(roomO)}。</span>
-          <span>你：广告前预计 ${dM} 人，产能 ${cm.cap} 人，${desc(roomM)}。</span>
+          <span>${esc(nameOf(o))}：算上你投给他的广告，预计 约 ${ex(eO.total)} 人（${eO.min}–${eO.max}），${desc(eO, co.cap)}。</span>
+          <span>你：算上你给自己的广告，预计 约 ${ex(eM.total)} 人（${eM.min}–${eM.max}），${desc(eM, cm.cap)}。</span>
           <span class="muted">对手也可能给你或给自己投广告。接不住的客人会让餐厅掉声誉，除非花 $${CFG.voucher}/人 发补偿券。</span></div>
         <div class="row"><button class="btn" data-act="commit">暗中提交</button></div></div>`;
     }
     case 'voucher': {
+      if (!watched()) return openingHTML();
       const v = S.service[s];
       let body;
       if (!k) body = v.turned > 0 && !S.submitted[s] && p.cash < CFG.voucher ? `<p class="muted">你拒绝了 ${v.turned} 位客人，但现金不够发补偿券。</p>` + waitHTML(s) : waitHTML(s);
       else {
         const f = F({ n: 0 }), max = Math.min(v.turned, Math.floor(p.cash / CFG.voucher));
         body = `<div class="form"><div class="field"><div class="txt"><b>发补偿券</b><small>你拒绝了 ${v.turned} 位客人。每张 $${CFG.voucher}，被补偿的客人不影响声誉</small></div>${stepper('n', f.n, 0, max, '补偿券')}</div>
-          <div class="callout warn">不补偿的人数：${v.turned - f.n} 人 → ${v.turned - f.n === 0 ? '声誉不变' : v.turned - f.n <= 3 ? '掉 1 星' : '掉 2 星'}。每掉 1 星，之后每天少 ${CFG.starStep} 位客人。</div>
+          <div class="callout warn">不补偿的人数：${v.turned - f.n} 人 → ${v.turned - f.n === 0 ? '声誉不变' : v.turned - f.n <= 3 ? '掉 1 星' : '掉 2 星'}。声誉低于 3 星时，每低一颗，就有 ${CFG.rep.perStar} 位基础客人各有 ${pct(CFG.rep.loseChance)} 的概率不来。</div>
           <div class="row"><button class="btn" data-act="voucher">确认（${usd(-f.n * CFG.voucher)}）</button></div></div>`;
       }
       return head('营业结果', '补偿券') + body + billsHTML();
     }
     case 'report': {
+      if (!watched()) return openingHTML();
       const last = S.round >= CFG.rounds;
       const btn = k ? `<button class="btn" data-act="next">${last ? '查看最终结果' : `开始第 ${S.round + 1} 天`}</button>` : waitHTML(s, `等待${esc(nameOf(o))}看完账单…`);
       return head(`第 ${S.round} 天账单`, '复盘') + billsHTML() + `<div class="row">${btn}</div>`;
@@ -408,6 +412,67 @@ function actionHTML() {
     case 'over': return overHTML();
   }
   return '';
+}
+
+// ---------- opening the doors: play back every roll, one step at a time ----------
+const playKey = () => `${app.mode === 'local' ? app.seed : app.code}:${app.S.round}`;
+function watched() { const k = playKey(); return !!(app.played[k] || (app.mode === 'online' && lsGet('played:' + k))); }
+function markWatched() {
+  const k = playKey(); app.played[k] = true; if (app.mode === 'online') lsSet('played:' + k, '1');
+  clearTimeout(app.playTimer); app.playing = null; render();
+}
+const stepsLen = () => Math.max(...['p1', 'p2'].map(s => app.S.service[s].steps.length));
+function startPlay() { clearTimeout(app.playTimer); app.playing = { key: playKey(), idx: 0 }; tick(); }
+function tick() {
+  const P = app.playing; if (!P || !app.S || !app.S.service || P.key !== playKey()) return;
+  if (P.idx >= stepsLen()) return render();
+  const kinds = ['p1', 'p2'].map(s => (app.S.service[s].steps[P.idx] || {}).k);
+  P.idx++; render();
+  const delay = kinds.every(k => !k || k === 'tip') ? 260 : kinds.some(k => k === 'total' || k === 'seat' || k === 'turned') ? 900 : 520;
+  app.playTimer = setTimeout(tick, delay);
+}
+function stepLine(s, st) {
+  const o = s === 'p1' ? 'p2' : 'p1', dice = (roll, need, verb) => `<span class="muted mono">掷 ${roll}（≤${need} ${verb}）</span>`;
+  const li = (txt, res, cls = '') => `<li class="${cls}"><span>${txt}</span><span>${res}</span></li>`;
+  switch (st.k) {
+    case 'base': return li('固定的基础客人到店', `<b class="pos">+${st.n}</b>`);
+    case 'rep': return li(`声誉吸引来的客人 ${dice(st.roll, st.need, '到店')}`, st.ok ? '<b class="pos">来了 +1</b>' : '<span class="muted">没来</span>');
+    case 'lose': return li(`声誉偏低，一位老客人 ${dice(st.roll, st.need, '流失')}`, st.ok ? '<b class="neg">没来 −1</b>' : '<span class="muted">照常来</span>');
+    case 'ad': return li(`${st.from === 'self' ? '自己的广告' : `${esc(nameOf(o))}送来的广告`} ${dice(st.roll, st.need, '到店')}`, st.ok ? '<b class="pos">来了 +1</b>' : '<span class="muted">没来</span>');
+    case 'total': return li(`<b>今天一共来了 ${st.demand} 位客人</b>`, '', 'em');
+    case 'noshow': return li(`预订的客人 <span class="muted mono">掷骰 ${st.roll}（4–6 到场）</span>`, st.arrive ? `<b>${st.choice === 'hold' ? '到场付款' : '到场，但没留座位'}</b>` : '<span class="muted">没来</span>');
+    case 'seat': return li(`<b>入座 ${st.served} 位</b> <span class="muted">（产能 ${st.cap}）</span>`, '', 'em');
+    case 'turned': return li(`<b class="neg">${st.n} 位客人没有座位，被拒绝</b>`, '', 'em bad');
+    case 'tip': return li(`第 ${st.table} 桌小费 ${pct(st.pct)} <span class="muted mono">（随机 ${pct(st.roll)}，员工 ${st.adj >= 0 ? '+' : '−'}${pct(Math.abs(st.adj))}）</span>`, `<span class="pos">+${usd(st.amt)}</span>`);
+    case 'sum': return li(`<b>餐费 ${usd(st.meals)} · 小费 ${usd(st.tips)}</b>`, '', 'em');
+  }
+  return '';
+}
+function feedHTML(s, n) {
+  const v = app.S.service[s], shown = v.steps.slice(0, n);
+  let came = 0, seated = '—', tips = 0;
+  for (const st of shown) {
+    if (st.k === 'base') came += st.n;
+    if ((st.k === 'rep' || st.k === 'ad') && st.ok) came++;
+    if (st.k === 'lose' && st.ok) came--;
+    if (st.k === 'seat') seated = st.served;
+    if (st.k === 'tip') tips += st.amt;
+  }
+  return `<article class="bill" data-seat="${s}">
+    <div class="rest-head"><h2>${esc(nameOf(s))}</h2><span class="muted mono" style="font-size:.8rem">${CFG.loc[app.S.players[s].loc].name} · 产能 ${v.cap}</span></div>
+    <div class="big"><div><span class="label">来客</span><b>${came}</b></div><div><span class="label">入座</span><b>${seated}</b></div><div><span class="label">小费</span><b>${usd(Math.round(tips * 100) / 100)}</b></div></div>
+    <ul class="lines feed">${shown.map(st => stepLine(s, st)).reverse().join('') || '<li class="muted"><span>正在开门…</span><span></span></li>'}</ul>
+  </article>`;
+}
+function openingHTML() {
+  const S = app.S, P = app.playing && app.playing.key === playKey() ? app.playing : null;
+  const head = `<div class="ticket-head"><h2>第 ${S.round} 天 · 开始营业</h2><span class="label">${P ? (P.idx >= stepsLen() ? '营业结束' : '营业中') : '准备开门'}</span></div>`;
+  if (!P) return head + `<p class="muted">双方的广告已经揭晓。点“开始营业”，逐个看客人来不来、坐不坐得下、每桌给多少小费。</p>
+    <div class="row"><button class="btn" data-act="play">开始营业</button><button class="btn ghost" data-act="skip">直接看账单</button></div>`;
+  const order = app.mode === 'online' ? [app.me, app.me === 'p1' ? 'p2' : 'p1'] : ['p1', 'p2'];
+  const done = P.idx >= stepsLen();
+  return head + `<div class="bills">${order.map(s => feedHTML(s, P.idx)).join('')}</div>
+    <div class="row">${done ? '<button class="btn" data-act="skip">查看今日账单</button>' : '<button class="btn ghost" data-act="skip">跳过</button>'}</div>`;
 }
 
 function billsHTML() {
@@ -429,10 +494,12 @@ function billHTML(s) {
   return `<article class="bill" data-seat="${s}">
     <div class="rest-head"><h2>${esc(nameOf(s))}</h2><span class="muted mono" style="font-size:.8rem">${CFG.loc[p.loc].name}</span></div>
     <div class="big"><div><span class="label">来客</span><b>${v.demand}</b></div><div><span class="label">接待</span><b>${v.served}</b></div><div class="${v.turned ? 'bad' : ''}"><span class="label">拒绝</span><b>${v.turned}</b></div></div>
-    <div class="eq"><span class="k">需求</span><span>基础 ${v.base} ${sgn(v.rep)} 声誉 ${sgn(v.adCust)} 广告 = ${v.demand}</span>
+    <div class="eq"><span class="k">来客</span><span>基础 ${v.base}${v.repGain ? ` + 声誉 ${v.repGain}` : ''}${v.repLoss ? ` − 声誉流失 ${v.repLoss}` : ''} + 自己广告 ${v.adSelfIn} + ${esc(nameOf(o))}送来 ${v.adRivalIn} = ${v.demand}</span>
       <span class="muted">自己投 ${v.adsSelf} 张，${esc(nameOf(o))}投给这里 ${v.adsRival} 张</span></div>
     <div class="eq"><span class="k">产能</span><span>桌子 ${v.tables} · 员工 ${v.staff} · 食材 ${v.ingr} → 取最小 ${v.cap}</span>
       ${v.limits.length ? `<span class="neg">卡在：${v.limits.map(x => limName[x]).join('、')}</span>` : v.cap > v.demand ? `<span class="muted">还空着 ${v.cap - v.demand} 个位置</span>` : ''}</div>
+    <div class="eq"><span class="k">收入</span><span>餐费 ${usd(v.meals)} + 小费 ${usd(v.tips)}</span>
+      <span class="muted">员工忙碌度 ${pct(v.load)}，小费比例 ${v.adj >= 0 ? '+' : '−'}${pct(Math.abs(v.adj))}</span></div>
     ${rep}
     ${extra.length ? `<div class="eq">${extra.map(x => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
     <ul class="lines">${lines}<li><b>当前现金</b><b class="mono">${usd(p.cash)}</b></li></ul>
@@ -459,7 +526,7 @@ function historyHTML() {
   const S = app.S, rows = [];
   for (let r = 1; r <= CFG.rounds; r++) for (const s of ['p1', 'p2']) {
     const h = S.players[s].history.find(x => x.round === r); if (!h) continue;
-    rows.push(`<tr><td>第 ${r} 天 · ${esc(nameOf(s))}</td><td>${h.demand}</td><td>${h.cap}</td><td>${h.served}</td><td class="${h.turned ? 'neg' : ''}">${h.turned}</td><td>${h.spoiled}</td><td class="pos">+$${h.income}</td><td class="neg">${usd(h.spend)}</td><td>${usd(h.cash)}</td><td>${h.stars}</td></tr>`);
+    rows.push(`<tr><td>第 ${r} 天 · ${esc(nameOf(s))}</td><td>${h.demand}</td><td>${h.cap}</td><td>${h.served}</td><td class="${h.turned ? 'neg' : ''}">${h.turned}</td><td>${h.spoiled}</td><td class="pos">+${usd(h.income)}</td><td class="neg">${usd(h.spend)}</td><td>${usd(h.cash)}</td><td>${h.stars}</td></tr>`);
   }
   if (!rows.length) return '';
   return `<section class="ticket"><div class="ticket-head"><h2>营业记录</h2><span class="label">每天结束时</span></div>
@@ -492,6 +559,8 @@ document.addEventListener('click', e => {
     case 'local': return startLocal();
     case 'leave': return leave(false);
     case 'view': app.view = b.dataset.seat; return render();
+    case 'play': return startPlay();
+    case 'skip': return markWatched();
     case 'copy': {
       const done = () => toast(`房间号 ${app.code} 已复制`);
       try { navigator.clipboard.writeText(app.code).then(done, () => toast(`房间号：${app.code}`)); } catch (err) { toast(`房间号：${app.code}`); }

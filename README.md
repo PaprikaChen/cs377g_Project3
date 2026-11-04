@@ -56,9 +56,12 @@ python3 -m http.server 8000
 
 规则数字都在 `engine.js` 开头的 `CFG` 里，例如：
 
-- `loc.country` / `loc.city`：开店费、房租、初始桌子、单客收入、免费食材
+- `loc.country` / `loc.city`：开店费、房租、初始桌子、每桌餐费 `price`、小费比例范围 `tip`、免费食材
+- `ad.chance`：广告带来的每位潜在客人到店的概率
+- `rep`：声誉带来的潜在客人数和到店概率、低声誉时老客人流失的概率
+- `staffSwing`：员工清闲或忙碌时，小费比例最多上下浮动多少
 - `market`：每天库存 24 份和三档价格
-- `ad.cost` / `ad.customers`：广告价格和带来的客人数
+- `ad.cost` / `ad.customers`：广告价格和每张带来的潜在客人数
 - `voucher`：补偿券价格
 - `starValue`：每颗星在最终得分里值多少钱
 

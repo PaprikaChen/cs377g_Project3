@@ -160,3 +160,8 @@ details ul{margin:10px 0 0;padding-left:1.2em;display:grid;gap:4px;font-size:.9r
 .score{font-family:var(--display);font-size:2.2rem}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:4px;font-size:.9rem;max-width:calc(100% - 32px)}
 input.nick{text-transform:none;letter-spacing:normal;width:12em;max-width:100%;font-family:var(--body);font-size:1rem}
+.feed{max-height:360px;overflow-y:auto}
+.feed li:first-child{animation:pop .35s ease-out}
+.feed li.em{border-bottom-style:solid}
+@keyframes pop{from{background:var(--sunk)}to{background:transparent}}
+@media (prefers-reduced-motion:reduce){.feed li:first-child{animation:none}}

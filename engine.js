@@ -1,15 +1,27 @@
 // ===== Rules engine: replays both players' action logs into the game state =====
 const CFG = {
   rounds: 5, startCash: 100, wage: 4, startStaff: 2, startStars: 3,
+  // price = 每桌餐费（不含小费）；tip = 每桌小费占餐费的随机比例范围 [最低, 最高]
+  // ⚠ 标“待定”的数字是占位值，等小组定稿
   loc: {
-    country: { name: '乡村店', tag: '$$', open: 20, rent: 5, tables: 6, price: 8, free: 2 },
-    city:    { name: '城市店', tag: '$$$', open: 35, rent: 12, tables: 4, price: 12, free: 0 }
+    country: { name: '乡村店', tag: '$$', open: 20, rent: 5, tables: 6, price: 7, tip: [0.05, 0.15], free: 2 },   // price、tip 待定
+    city:    { name: '城市店', tag: '$$$', open: 35, rent: 12, tables: 4, price: 10, tip: [0.10, 0.25], free: 0 } // price、tip 待定
   },
-  baseDemand: 6, starStep: 2, perStaff: 3, tableCost: 6, maxTables: 14, maxStaff: 6,
+  baseDemand: 6, perStaff: 3, tableCost: 6, maxTables: 14, maxStaff: 6,
+  // 到店概率（待定）：
+  //   ad.chance      每张广告带来 customers 位潜在客人，每人按这个概率到店
+  //   rep.perStar    声誉每高于 3 星一颗，多 perStar 位潜在客人，每人按 rep.chance 到店
+  //                  声誉每低于 3 星一颗，有 perStar 位基础客人各按 rep.loseChance 的概率不来
+  ad: { cost: 5, customers: 2, chance: 0.6 },
+  rep: { perStar: 2, chance: 0.5, loseChance: 0.5 },
+  // 小费随员工忙碌程度浮动（待定）：忙碌度 = 接待人数 ÷ (员工 × 3)
+  // 很清闲时小费比例最多 +staffSwing，满负荷时最多 −staffSwing
+  staffSwing: 0.05,
   market: { stock: 24, tiers: [[8, 1], [16, 2], [24, 3]], maxPerTurn: 3 },
-  ad: { cost: 5, customers: 2 }, voucher: 3, loan: { amount: 30, repay: 40 },
+  voucher: 3, loan: { amount: 30, repay: 40 },
   starValue: 10, shady: { cash: 15, fine: 20 }, noshow: { pay: 30, tables: 2 }
 };
+const round2 = x => Math.round(x * 100) / 100;
 const SEATS = ['p1', 'p2'];
 const other = s => (s === 'p1' ? 'p2' : 'p1');
 
@@ -54,10 +66,17 @@ function newPlayer() {
   return { loc: null, cash: CFG.startCash, stars: CFG.startStars, tables: 0, staff: CFG.startStaff,
     ingr: 0, loan: false, shadyFrom: null, bankrupt: false, held: 0, ledger: [], history: [] };
 }
-function money(p, label, amt) { p.cash += amt; p.ledger.push({ label, amt }); }
+function money(p, label, amt) { p.cash = round2(p.cash + amt); p.ledger.push({ label, amt: round2(amt) }); }
 function note(p, label) { p.ledger.push({ label, amt: null }); }
 
-function demandBase(p) { return CFG.baseDemand + (p.stars - CFG.startStars) * CFG.starStep; }
+// Expected customers before the doors open (the page shows this as a forecast; the real number is rolled at service).
+function expectedDemand(p, adTokens = 0) {
+  const d = p.stars - CFG.startStars, per = CFG.rep.perStar;
+  const rep = d > 0 ? d * per * CFG.rep.chance : -(-d) * per * CFG.rep.loseChance;
+  const ads = adTokens * CFG.ad.customers * CFG.ad.chance;
+  return { base: CFG.baseDemand, rep, ads, total: CFG.baseDemand + rep + ads,
+    min: CFG.baseDemand - (d < 0 ? -d * per : 0), max: CFG.baseDemand + (d > 0 ? d * per : 0) + adTokens * CFG.ad.customers };
+}
 function capacityOf(p) {
   const t = Math.max(0, p.tables - p.held), s = p.staff * CFG.perStaff, i = p.ingr;
   return { tables: t, staff: s, ingr: i, cap: Math.min(t, s, i) };
@@ -104,25 +123,58 @@ function startMarket(S) {
   S.phase = 'market';
 }
 
+// Opening the doors: every random roll is recorded in `steps`, in the order the page plays them back.
 function runService(S) {
   S.service = {};
   for (const s of SEATS) {
     const p = S.players[s], o = other(s), L = CFG.loc[p.loc];
-    const adsSelf = S.reveals[s].self, adsRival = S.reveals[o].rival;
-    const base = CFG.baseDemand, rep = (p.stars - CFG.startStars) * CFG.starStep;
-    const adCust = (adsSelf + adsRival) * CFG.ad.customers;
-    const demand = Math.max(0, base + rep + adCust);
-    const c = capacityOf(p);
-    const served = Math.min(demand, c.cap), turned = demand - served;
-    const limits = demand > c.cap ? ['tables', 'staff', 'ingr'].filter(k => c[k] === c.cap) : [];
-    money(p, `营业收入（${served} 位 × $${L.price}）`, served * L.price);
+    const r = rand(S.seed, `svc${S.round}${s}`), d100 = () => 1 + Math.floor(r() * 100);
+    const steps = [], adsSelf = S.reveals[s].self, adsRival = S.reveals[o].rival;
+    const base = CFG.baseDemand, diff = p.stars - CFG.startStars;
+    steps.push({ k: 'base', n: base });
+    let repGain = 0, repLoss = 0;
+    if (diff > 0) for (let i = 0; i < diff * CFG.rep.perStar; i++) {
+      const roll = d100(), need = Math.round(CFG.rep.chance * 100), ok = roll <= need;
+      if (ok) repGain++; steps.push({ k: 'rep', roll, need, ok });
+    }
+    if (diff < 0) for (let i = 0; i < -diff * CFG.rep.perStar; i++) {
+      const roll = d100(), need = Math.round(CFG.rep.loseChance * 100), ok = roll <= need;
+      if (ok) repLoss++; steps.push({ k: 'lose', roll, need, ok });
+    }
+    let adSelfIn = 0, adRivalIn = 0;
+    for (const [from, n] of [['self', adsSelf], ['rival', adsRival]]) for (let i = 0; i < n * CFG.ad.customers; i++) {
+      const roll = d100(), need = Math.round(CFG.ad.chance * 100), ok = roll <= need;
+      if (ok) { if (from === 'self') adSelfIn++; else adRivalIn++; }
+      steps.push({ k: 'ad', from, roll, need, ok });
+    }
+    const demand = Math.max(0, base + repGain - repLoss + adSelfIn + adRivalIn);
+    steps.push({ k: 'total', demand });
     let noshow = null;
     if (S.event && S.event.type === 'noshow' && S.event.seat === s) {
       const roll = d6(S.seed, `noshow${S.round}`), arrive = roll >= 4;
       noshow = { roll, arrive, choice: S.event.choice };
+      steps.push({ k: 'noshow', ...noshow });
       if (S.event.choice === 'hold' && arrive) money(p, '预订客人到场付款', CFG.noshow.pay);
     }
-    S.service[s] = { base, rep, adsSelf, adsRival, adCust, demand, ...c, served, turned, limits, noshow, vouchers: 0 };
+    const c = capacityOf(p);
+    const served = Math.min(demand, c.cap), turned = demand - served;
+    const limits = demand > c.cap ? ['tables', 'staff', 'ingr'].filter(k => c[k] === c.cap) : [];
+    steps.push({ k: 'seat', served, cap: c.cap, limits });
+    if (turned) steps.push({ k: 'turned', n: turned });
+    // Tips: a random share of each table's bill, nudged up when staff are idle and down when they are stretched.
+    const load = c.staff ? served / c.staff : 1, adj = round2(CFG.staffSwing * (1 - 2 * load));
+    const [lo, hi] = L.tip;
+    let tips = 0;
+    for (let i = 0; i < served; i++) {
+      const roll = round2(lo + r() * (hi - lo)), pct = Math.max(0, round2(roll + adj)), amt = round2(L.price * pct);
+      tips = round2(tips + amt); steps.push({ k: 'tip', table: i + 1, roll, adj, pct, amt });
+    }
+    const meals = served * L.price;
+    if (served) money(p, `餐费（${served} 桌 × $${L.price}）`, meals);
+    if (tips) money(p, `小费（${served} 桌合计）`, tips);
+    steps.push({ k: 'sum', meals, tips, load: round2(load), adj });
+    S.service[s] = { base, repGain, repLoss, adsSelf, adsRival, adSelfIn, adRivalIn, demand, ...c, served, turned,
+      limits, noshow, vouchers: 0, meals, tips, load: round2(load), adj, steps };
   }
   const needV = SEATS.some(s => S.service[s].turned > 0 && S.players[s].cash >= CFG.voucher);
   if (needV) S.phase = 'voucher'; else review(S);
@@ -150,8 +202,8 @@ function review(S) {
     if (spoiled) note(p, `${spoiled} 份食材过期`);
     p.ingr = 0;
     v.starsBefore = before; v.starsAfter = p.stars; v.why = why; v.spoiled = spoiled; v.inspection = inspection;
-    const income = p.ledger.filter(x => x.amt > 0).reduce((a, x) => a + x.amt, 0);
-    const spend = p.ledger.filter(x => x.amt < 0).reduce((a, x) => a + x.amt, 0);
+    const income = round2(p.ledger.filter(x => x.amt > 0).reduce((a, x) => a + x.amt, 0));
+    const spend = round2(p.ledger.filter(x => x.amt < 0).reduce((a, x) => a + x.amt, 0));
     p.history.push({ round: S.round, demand: v.demand, cap: v.cap, served: v.served, turned: v.turned,
       spoiled, income, spend, cash: p.cash, stars: p.stars, ledger: p.ledger.slice() });
   }
@@ -163,7 +215,7 @@ function finish(S, reason) {
   for (const s of SEATS) {
     const p = S.players[s];
     score[s] = { cash: p.cash, stars: p.stars, starPts: p.stars * CFG.starValue,
-      loan: p.loan ? -CFG.loan.repay : 0, total: p.cash + p.stars * CFG.starValue - (p.loan ? CFG.loan.repay : 0) };
+      loan: p.loan ? -CFG.loan.repay : 0, total: round2(p.cash + p.stars * CFG.starValue - (p.loan ? CFG.loan.repay : 0)) };
   }
   let winner;
   if (reason === 'bankrupt') {
@@ -300,4 +352,4 @@ function simulate(seed, logs) {
   return S;
 }
 
-if (typeof module !== 'undefined') module.exports = { CFG, simulate, adHash, priceOf, maxAffordable, capacityOf, demandBase, expected };
+if (typeof module !== 'undefined') module.exports = { CFG, simulate, adHash, priceOf, maxAffordable, capacityOf, expectedDemand, expected };

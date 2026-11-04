@@ -39,3 +39,14 @@ for (let g = 0; g < 2000; g++) {
   if (g === 3) console.log(JSON.stringify(S.result), S.players.p1.history.map(h => [h.round, h.demand, h.cap, h.served, h.turned, h.cash, h.stars]));
 }
 console.log(wins, reasons);
+// Determinism and money checks: the same logs must always give the same result, and cash has at most 2 decimals.
+{
+  const logs = { p1: [], p2: [] }, priv = {}; let S;
+  mul = 99;
+  while (true) { S = E.simulate('det', logs); if (S.phase === 'over') break;
+    for (const s of ['p1', 'p2']) if (S.waiting[s]) { logs[s].push(bot(S, s, rnd, priv)); break; } }
+  const again = E.simulate('det', JSON.parse(JSON.stringify(logs)));
+  if (JSON.stringify(again.result) !== JSON.stringify(S.result)) { console.log('NOT DETERMINISTIC'); process.exit(1); }
+  for (const s of ['p1', 'p2']) for (const h of S.players[s].history) if (Math.abs(Math.round(h.cash * 100) - h.cash * 100) > 1e-6) { console.log('cash decimals', h.cash); process.exit(1); }
+  console.log('determinism + cash OK', JSON.stringify(S.result.score.p1));
+}
