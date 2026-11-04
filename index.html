@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Cache-Control" content="no-cache">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>餐厅经营对战</title>
+<title>Restaurant Rivals</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Archivo+Narrow:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="style.css?v=824cfe0">
@@ -13,23 +13,22 @@
 <body>
 <div class="wrap">
   <header class="bar">
-    <div class="brand"><h1>餐厅经营对战</h1><span class="label">原型 v1</span></div>
+    <div class="brand"><h1>Restaurant Rivals</h1><span class="label">prototype v1</span></div>
     <ol class="steps" id="steps"></ol>
     <div class="room" id="room"></div>
   </header>
   <main id="app"></main>
   <details>
-    <summary>规则速查</summary>
+    <summary>Quick rules</summary>
     <ul>
-      <li>5 天定胜负。最终得分 = 现金 + 每颗星 $10。付不起每天的房租和工资就破产出局。</li>
-      <li>每天固定有 6 位基础客人。声誉每高于 3 星一颗，多 2 位潜在客人；每低于 3 星一颗，有 2 位基础客人可能流失。潜在客人逐个掷骰决定来不来。</li>
-      <li>广告牌背面朝上放在自己或对手的店门口：真牌 $6，空牌 $2（虚张声势）。对手只看得到张数，翻牌时才扣钱。每张真牌一定带来 2 位客人。</li>
-      <li>放牌后、翻牌前，双方都可以临时扩容：临时加桌 $4/张（只用当天），紧急补货 $3/份。</li>
-      <li>产能 = 桌子和食材中较小的那个。接待人数 = 来客与产能中较小者。</li>
-      <li>每接待一桌：乡村店收入 $8，城市店收入 $12。</li>
-      <li>每天固定开支：房租。没用完的食材当天过期。</li>
-      <li>市场每天 24 份食材，价格随卖出数量上涨：前 8 份 $1，再 8 份 $2，最后 8 份 $3。现金少的一方先买。</li>
-      <li>拒绝客人掉声誉（1–3 人 −1 星，4 人以上 −2 星），每张 $3 补偿券可以免掉一人的影响。全部接待 +1 星。</li>
+      <li>5 days. Score = cash + $10 per star. Can't pay rent? You're out.</li>
+      <li>6 regulars show up every day. Each star above 3 brings 2 maybe-customers; each star below 3 risks losing 2 regulars. Dice decide.</li>
+      <li>Ad cards go face down in front of any shop: real $6 (brings 2 customers), bluff $2 (brings nobody). Your rival only sees how many. You pay when they flip.</li>
+      <li>Before the flip, both sides can scramble: pop-up table $4 (today only), rush ingredients $3 each.</li>
+      <li>You can serve as many tables as your tables or ingredients allow, whichever is lower.</li>
+      <li>Each table pays $8 in the countryside, $12 in the city. Rent is your only fixed cost. Leftover food spoils.</li>
+      <li>Market: 24 ingredients a day. First 8 cost $1, next 8 $2, last 8 $3. Poorer player buys first.</li>
+      <li>Turn people away and you lose stars (1–3 people −1, 4+ −2). A $3 voucher saves one. Serve everyone: +1 star.</li>
     </ul>
   </details>
 </div>

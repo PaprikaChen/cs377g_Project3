@@ -4,8 +4,8 @@ const CFG = {
   // price = 每桌收入（餐费含小费，固定）
   // ⚠ 标“待定”的数字是占位值，等小组定稿
   loc: {
-    country: { name: '乡村店', tag: '$$', open: 20, rent: 5, tables: 6, price: 8, free: 2 },
-    city:    { name: '城市店', tag: '$$$', open: 35, rent: 12, tables: 4, price: 12, free: 0 }
+    country: { name: 'Countryside', tag: '$$', open: 20, rent: 5, tables: 6, price: 8, free: 2 },
+    city:    { name: 'City', tag: '$$$', open: 35, rent: 12, tables: 4, price: 12, free: 0 }
   },
   baseDemand: 6, tableCost: 6, maxTables: 14,
   // 广告牌（价格待定）：每天可以买任意张，背面朝上放在自己或对手店前
@@ -110,10 +110,10 @@ function startRound(S) {
   for (const s of SEATS) {
     const p = S.players[s], L = CFG.loc[p.loc];
     p.ledger = []; p.held = 0; p.tempTables = 0;
-    money(p, '房租', -L.rent);
+    money(p, 'Rent', -L.rent);
     p.ingr = L.free;
-    if (L.free) note(p, `本地农场免费食材 ${L.free} 份`);
-    if (p.cash < 0 && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, '付不起开支，被迫贷款', CFG.loan.amount); }
+    if (L.free) note(p, `Free farm produce ×${L.free}`);
+    if (p.cash < 0 && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, 'Forced loan', CFG.loan.amount); }
     if (p.cash < 0) p.bankrupt = true;
   }
   if (S.players.p1.bankrupt || S.players.p2.bankrupt) return finish(S, 'bankrupt');
@@ -171,7 +171,7 @@ function runService(S) {
       const roll = d6(S.seed, `noshow${S.round}`), arrive = roll >= 4;
       noshow = { roll, arrive, choice: S.event.choice };
       steps.push({ k: 'noshow', ...noshow });
-      if (S.event.choice === 'hold' && arrive) money(p, '预订客人到场付款', CFG.noshow.pay);
+      if (S.event.choice === 'hold' && arrive) money(p, 'Reservation paid', CFG.noshow.pay);
     }
     const c = capacityOf(p);
     const served = Math.min(demand, c.cap), turned = demand - served;
@@ -179,7 +179,7 @@ function runService(S) {
     steps.push({ k: 'seat', served, cap: c.cap, limits });
     if (turned) steps.push({ k: 'turned', n: turned });
     const meals = served * L.price;
-    if (served) money(p, `营业收入（${served} 桌 × $${L.price}）`, meals);
+    if (served) money(p, `Sales (${served} × $${L.price})`, meals);
     steps.push({ k: 'sum', meals });
     S.service[s] = { base, repGain, repLoss, adsSelf, adsRival, adSelfIn, adRivalIn, demand, ...c, served, turned,
       limits, noshow, vouchers: 0, meals, cards: { mine, theirs }, steps };
@@ -194,20 +194,20 @@ function review(S) {
     const unv = v.turned - v.vouchers;
     let delta = v.turned === 0 ? 1 : unv === 0 ? 0 : unv <= 3 ? -1 : -2;
     const why = [];
-    if (v.turned === 0) why.push('接待了所有客人 +1');
-    else if (unv > 0) why.push(`拒绝了 ${unv} 位客人 ${unv <= 3 ? -1 : -2}`);
-    if (v.noshow && v.noshow.choice === 'release' && v.noshow.arrive) { delta -= 1; why.push('预订客人到场却没座位 −1'); }
+    if (v.turned === 0) why.push('served everyone +1');
+    else if (unv > 0) why.push(`turned away ${unv} ${unv <= 3 ? '−1' : '−2'}`);
+    if (v.noshow && v.noshow.choice === 'release' && v.noshow.arrive) { delta -= 1; why.push('reservation had no seat −1'); }
     let inspection = null;
     if (p.shadyFrom !== null && S.round > p.shadyFrom) {
       const roll = d6(S.seed, `shady${s}${S.round}`);
       inspection = { roll, caught: roll === 1 };
-      if (roll === 1) { money(p, '检查员上门罚款', -CFG.shady.fine); delta -= 1; why.push('检查员上门 −1'); p.shadyFrom = null; }
+      if (roll === 1) { money(p, 'Inspector fine', -CFG.shady.fine); delta -= 1; why.push('inspector −1'); p.shadyFrom = null; }
     }
     delta = Math.max(-2, delta);
     const before = p.stars;
     p.stars = Math.max(1, Math.min(5, p.stars + delta));
     const spoiled = Math.max(0, p.ingr - v.served);
-    if (spoiled) note(p, `${spoiled} 份食材过期`);
+    if (spoiled) note(p, `${spoiled} ingredients spoiled`);
     p.ingr = 0;
     v.starsBefore = before; v.starsAfter = p.stars; v.why = why; v.spoiled = spoiled; v.inspection = inspection;
     const income = round2(p.ledger.filter(x => x.amt > 0).reduce((a, x) => a + x.amt, 0));
@@ -269,7 +269,7 @@ function apply(S, got) {
       const s = S.event.seat, p = S.players[s], a = got[s];
       if (S.event.type === 'shady') {
         S.event.choice = a.choice === 'accept' ? 'accept' : 'decline';
-        if (S.event.choice === 'accept') { money(p, '可疑客户的交易', CFG.shady.cash); p.shadyFrom = r; }
+        if (S.event.choice === 'accept') { money(p, 'Shady deal', CFG.shady.cash); p.shadyFrom = r; }
       } else {
         S.event.choice = a.choice === 'hold' ? 'hold' : 'release';
         if (S.event.choice === 'hold') p.held = CFG.noshow.tables;
@@ -279,10 +279,10 @@ function apply(S, got) {
     case 'invest': {
       for (const s of SEATS) {
         const p = S.players[s], a = got[s];
-        if (a.loan && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, '贷款', CFG.loan.amount); }
+        if (a.loan && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, 'Loan', CFG.loan.amount); }
         const room = CFG.maxTables - p.tables;
         const t = Math.min(intIn(a.tables, 0, room), Math.floor(Math.max(0, p.cash) / CFG.tableCost));
-        if (t) { money(p, `新增 ${t} 张桌子`, -t * CFG.tableCost); p.tables += t; }
+        if (t) { money(p, `New tables ×${t}`, -t * CFG.tableCost); p.tables += t; }
       }
       startMarket(S); break;
     }
@@ -299,7 +299,7 @@ function apply(S, got) {
       m.step++;
       const o = other(s);
       if (m.passed.p1 && m.passed.p2) {
-        for (const q of SEATS) if (m.buys[q]) S.players[q].ledger.push({ label: `买入食材 ${m.buys[q]} 份`, amt: -m.spent[q] });
+        for (const q of SEATS) if (m.buys[q]) S.players[q].ledger.push({ label: `Ingredients ×${m.buys[q]}`, amt: -m.spent[q] });
         S.phase = 'commit';
       } else m.turn = !m.passed[o] ? o : s;
       break;
@@ -317,9 +317,9 @@ function apply(S, got) {
       for (const s of SEATS) {
         const p = S.players[s], a = got[s];
         const tt = Math.min(intIn(a.tempTables, 0, R.tempTableMax), Math.floor(Math.max(0, p.cash) / R.tempTable));
-        if (tt) { money(p, `临时加桌 ${tt} 张`, -tt * R.tempTable); p.tempTables = tt; }
+        if (tt) { money(p, `Pop-up tables ×${tt}`, -tt * R.tempTable); p.tempTables = tt; }
         const rush = Math.min(intIn(a.rush, 0, R.rushIngrMax), Math.floor(Math.max(0, p.cash) / R.rushIngr));
-        if (rush) { money(p, `紧急补货 ${rush} 份`, -rush * R.rushIngr); p.ingr += rush; }
+        if (rush) { money(p, `Rush order ×${rush}`, -rush * R.rushIngr); p.ingr += rush; }
       }
       S.phase = 'reveal'; break;
     }
@@ -332,7 +332,7 @@ function apply(S, got) {
         // A failed check turns every card into a blank (the counts everyone saw stay the same).
         if (!ok) { c.selfReal = 0; c.selfBlank = cm.nSelf; c.rivalReal = 0; c.rivalBlank = cm.nRival; }
         const cost = adCost(c);
-        if (cost) money(p, `广告牌（真 ${c.selfReal + c.rivalReal} 张，空 ${c.selfBlank + c.rivalBlank} 张）`, -cost);
+        if (cost) money(p, `Ad cards (${c.selfReal + c.rivalReal} real, ${c.selfBlank + c.rivalBlank} bluff)`, -cost);
         S.reveals[s] = { self: { real: c.selfReal, blank: c.selfBlank }, rival: { real: c.rivalReal, blank: c.rivalBlank }, ok };
       }
       runService(S); break;
@@ -342,7 +342,7 @@ function apply(S, got) {
         if (!got[s]) continue;
         const p = S.players[s], v = S.service[s];
         const n = Math.min(intIn(got[s].n, 0, v.turned), Math.floor(p.cash / CFG.voucher));
-        if (n) { money(p, `补偿券 ${n} 张`, -n * CFG.voucher); v.vouchers = n; }
+        if (n) { money(p, `Comp vouchers ×${n}`, -n * CFG.voucher); v.vouchers = n; }
       }
       review(S); break;
     }
