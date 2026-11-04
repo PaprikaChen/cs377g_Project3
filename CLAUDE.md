@@ -58,7 +58,7 @@ python3 tests/online.test.py http://localhost:8765/index.html
 
 ## 发布
 
-推送到 `main` 分支，GitHub Pages 会在约 1 分钟内自动更新。提交信息用中文简短说明改了什么，方便小组看懂。
+推送到 `main` 分支，GitHub Pages 会在约 1 分钟内自动更新。**每次改了 `style.css`、`engine.js`、`app.js` 或 `firebase-config.js`，都要把 `index.html` 里这几个文件后面的 `?v=...` 改成新值**（比如当前提交的短哈希），否则玩家的浏览器可能继续用缓存里的旧文件。提交信息用中文简短说明改了什么，方便小组看懂。
 
 ## 相关文档
 
