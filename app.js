@@ -298,8 +298,9 @@ function frontHTML(shop, viewerSeat) {
 
 function restHTML(s) {
   const S = app.S, p = S.players[s], L = p.loc && CFG.loc[p.loc], own = s === viewer();
-  const c = publicCapacity(s);
+  const c = publicCapacity(s), E = expectedDemand(p);
   const live = ['event', 'invest', 'market', 'commit', 'respond', 'reveal'].includes(S.phase);
+  const lim = k => (c[k] === c.cap && E.total > c.cap ? 'limit' : '');
   const flags = [];
   if (p.loan) flags.push(`<span class="flag">Loan (repay $${CFG.loan.repay})</span>`);
   if (own && p.shadyFrom !== null) flags.push('<span class="flag bad">Took the shady deal</span>');
@@ -312,10 +313,10 @@ function restHTML(s) {
       <div class="stat"><span class="label">Income per table</span><b>${L ? '$' + L.price : '—'}</b></div>
     </div>
     ${L && live ? `<div class="capline">
-      <div class="res"><span class="label">Tables</span><b>${c.tables}</b>${p.tempTables ? `<span class="muted">${p.tempTables} pop-up</span>` : ''}${own && p.held ? `<span class="muted">+${p.held} held</span>` : ''}</div>
-      <div class="res"><span class="label">Food</span><b>${c.ingr}</b></div>
+      <div class="res ${lim('tables')}"><span class="label">Tables</span><b>${c.tables}</b>${p.tempTables ? `<span class="muted">${p.tempTables} pop-up</span>` : ''}${own && p.held ? `<span class="muted">+${p.held} held</span>` : ''}</div>
+      <div class="res ${lim('ingr')}"><span class="label">Food</span><b>${c.ingr}</b></div>
     </div>
-    ` : ''}
+    <div class="forecast"><span>~<b class="mono">${ex(E.total)}</b> expected</span><span>seats <b class="mono">${c.cap}</b></span></div>` : ''}
     ${L && !live ? `<div class="forecast"><span>Tables <b class="mono">${p.tables}</b></span></div>` : ''}
     ${['respond', 'reveal'].includes(S.phase) ? `<div class="forecast"><span>Cards out front</span>${frontHTML(s, viewer())}</div>` : ''}
     ${flags.length ? `<div class="flags">${flags.join('')}</div>` : ''}
@@ -344,6 +345,8 @@ function eventHTML() {
     <span>Hold them: they sit empty unless the party shows (50%), then you get $${CFG.noshow.pay}. Release them: use the tables, but if the party shows (50%) you lose a star.</span>
     ${e.choice ? `<span class="muted">You <b>${e.choice === 'hold' ? 'held them' : 'released them'}</b>.</span>` : secret}</div>`;
 }
+// One-line hint shown under a decision.
+const hint = t => `<p class="hint"><span class="label">Hint</span>${t}</p>`;
 // What the viewer may know about a shop's seats: a rival's held tables stay hidden.
 function publicCapacity(s) {
   const p = app.S.players[s];
@@ -384,6 +387,7 @@ function actionHTML() {
         <div class="field"><div class="txt"><b>Add tables</b><small>$${CFG.tableCost} each, yours for good. You have ${p.tables}.</small></div>${stepper('tables', f.tables, 0, maxT, 'Add tables')}</div>
         ${p.loan || !CFG.loan.enabled ? '' : `<label class="field toggle" for="loan-in"><div class="txt"><b>Take a loan</b><small>$${CFG.loan.amount} now, repay $${CFG.loan.repay} at the end. Once per game.</small></div><input type="checkbox" id="loan-in" data-act="loan" ${f.loan ? 'checked' : ''}></label>`}
         <div class="total"><span>Cost</span><span>${usd(-cost)} · left ${usd(cashAfterLoan - cost)}</span></div>
+        ${hint(`~${ex(expectedDemand(p).total)} customers expected before ads.`)}
         <div class="row"><button class="btn" data-act="invest">Done</button></div></div>`;
     }
     case 'market': {
@@ -394,7 +398,7 @@ function actionHTML() {
       }).join('');
       const board = `<div class="board" aria-label="${left} left in the market">${cells}</div>
         <div class="legend"><span><i class="dot" style="background:var(--p1)"></i>${esc(nameOf('p1'))}: ${m.buys.p1}</span><span><i class="dot" style="background:var(--p2)"></i>${esc(nameOf('p2'))}: ${m.buys.p2}</span><span>${left} left</span></div>`;
-      const info = `<p class="muted">Leftover food spoils tonight.</p>`;
+      const info = hint(`~${ex(expectedDemand(p).total)} expected before ads, ${Math.max(0, p.tables - p.held)} tables. Leftovers spoil.`);
       if (!k) return head('Market', m.passed[s] ? "you're done" : 'take turns') + board + info + waitHTML(s, m.passed[s] ? `${esc(nameOf(o))} is still shopping…` : `${esc(nameOf(o))}'s turn…`);
       const btn = n => { const ok = n <= left && priceOf(m.sold, n) <= p.cash; return `<button class="btn" data-act="buy" data-n="${n}" ${ok ? '' : 'disabled'}>Buy ${n} · $${n <= left ? priceOf(m.sold, n) : '—'}</button>`; };
       return head('Market', 'your turn') + board + info + `<div class="row">${btn(1)}${btn(2)}${btn(3)}<button class="btn ghost" data-act="buy" data-n="0">I'm done</button></div><p class="muted" style="font-size:.85rem">Once you're done, you're out for today.</p>`;
@@ -411,6 +415,7 @@ function actionHTML() {
         <h3>${poss(o)} shop</h3>
         ${row('rr', f.rr, 'Real ad', A.real, f.rb)}${row('rb', f.rb, 'Bluff', A.blank, f.rr)}
         <div class="total"><span>Paid at the flip</span><span>${usd(-cost)} · left ${usd(p.cash - cost)}</span></div>
+        ${hint(`You ~${ex(expectedDemand(p, f.sr).total)} / ${capacityOf(p).cap} seats · ${esc(nameOf(o))} ~${ex(expectedDemand(S.players[o], f.rr).total)} / ${publicCapacity(o).cap} seats`)}
         <div class="row"><button class="btn" data-act="commit">Place cards</button></div></div>`;
     }
     case 'respond': {
@@ -427,6 +432,7 @@ function actionHTML() {
         <div class="field"><div class="txt"><b>Pop-up tables</b><small>$${R.tempTable} each, today only</small></div>${stepper('tt', f.tt, 0, Math.min(R.tempTableMax, f.tt + Math.floor(left / R.tempTable)), 'Pop-up tables')}</div>
         <div class="field"><div class="txt"><b>Rush food</b><small>$${R.rushIngr} each, pricier than market, still spoils</small></div>${stepper('rush', f.rush, 0, Math.min(R.rushIngrMax, f.rush + Math.floor(left / R.rushIngr)), 'Rush food')}</div>
         <div class="total"><span>Cost</span><span>${usd(-cost)}</span></div>
+        ${hint(`All real = +${unknown * CFG.ad.customers} customers. You'll seat ${Math.min(capacityOf(p).tables + f.tt, p.ingr + f.rush)}.`)}
         ${reserve ? `<p class="muted" style="font-size:.85rem">${usd(reserve)} set aside for your ad cards.</p>` : ''}
         <div class="row"><button class="btn" data-act="respond">${cost ? 'Done' : 'Skip'}</button></div></div>`;
     }
@@ -439,6 +445,7 @@ function actionHTML() {
       else {
         const f = F({ n: 0 }), max = Math.min(v.turned, Math.floor(p.cash / CFG.voucher));
         body = `<div class="form"><div class="field"><div class="txt"><b>Comp vouchers</b><small>You turned away ${v.turned}. $${CFG.voucher} each keeps one from hurting your stars.</small></div>${stepper('n', f.n, 0, max, 'Vouchers')}</div>
+          ${hint(`${v.turned - f.n} unhappy → ${v.turned - f.n === 0 ? 'no star loss' : v.turned - f.n <= 3 ? '−1 star' : '−2 stars'}`)}
           <div class="row"><button class="btn" data-act="voucher">Done (${usd(-f.n * CFG.voucher)})</button></div></div>`;
       }
       return head('Service', 'vouchers') + body + billsHTML();

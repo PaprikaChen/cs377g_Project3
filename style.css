@@ -181,3 +181,5 @@ body{transition:background-color .35s ease}
 @media (prefers-reduced-motion:reduce){body{transition:none}}
 .viewbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:4px;color:var(--paper);font-weight:600}
 .viewbar[data-seat="p1"]{background:var(--p1)} .viewbar[data-seat="p2"]{background:var(--p2)}
+.hint{margin:0;font-size:.85rem;color:var(--muted);display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.hint .label{color:var(--warn)}
