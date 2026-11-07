@@ -40,7 +40,7 @@ const poss = s => (app.mode !== 'local' && s === app.me ? 'Your' : `${esc(nameOf
 // ---------- Firebase backend ----------
 // fb wraps the few Firestore calls the game needs, so the rest of the page never touches the SDK directly.
 (async () => {
-  // 测试钩子：自动化测试可以注入一个假的后端，正常使用时不存在
+  // Test hook: automated tests can inject a fake backend; absent in normal use
   if (typeof window.__RR_FAKE_FB === 'function') {
     app.fb = window.__RR_FAKE_FB(); app.uid = app.fb.uid; app.dbReady = true; app.dbMsg = ''; return render();
   }

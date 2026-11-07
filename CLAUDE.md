@@ -1,66 +1,70 @@
-# 餐厅经营对战 · 给 Claude 的项目说明
+# Restaurant Rivals · notes for Claude
 
-这个文件是给 Claude（聊天里的 Claude 或 Claude Code）看的项目上下文。每次开始修改前先读完它。
+Project context for Claude (in chat or in Claude Code). Read all of it before making changes.
 
-## 项目是什么
+## What this is
 
-一款教 13 岁以上玩家餐厅经营的双人对战网页游戏，是一门游戏设计课的小组项目，现在处于第一版原型阶段，目标是快速迭代、拿去试玩。
+A two-player web game that teaches restaurant management to players aged 13+. It's a team project for a game design class, currently a first prototype. The goal is fast iteration and playtesting.
 
-- 线上地址：GitHub Pages（仓库 Settings → Pages 里能看到）
-- 后端：Firebase 匿名登录 + Firestore，没有自己的服务器
-- 小组的 AI 使用规定：**游戏设计内容（规则、数值、文案的创意）由小组原创；AI 用于写代码和交叉检查。** 所以改规则或数值时，按小组给的要求实现；不要主动发明新机制或新数值。如果觉得某个设计有问题，指出来并给理由，由小组决定。
+- Live site: https://paprikachen.github.io/cs377g_Project3/ (GitHub Pages)
+- Backend: Firebase anonymous sign-in + Firestore; no server of our own
+- Team AI policy: **game design content (rules, numbers, the ideas behind the copy) is the team's own original work; AI is used for code and cross-checking.** When changing rules or numbers, implement what the team asks for; don't invent new mechanics or numbers. If a design looks problematic, say so with reasons and let the team decide.
+- On-screen text and project files are in English.
 
-## 文件
+## Files
 
-| 文件 | 内容 |
+| File | Contents |
 | --- | --- |
-| `engine.js` | 全部游戏规则。`CFG` 是所有数值；`simulate(seed, logs)` 把双方行动记录重放成游戏状态 |
-| `app.js` | 界面渲染、Firebase 同步、本机测试模式（ES 模块） |
-| `style.css` | 样式，颜色都用 `:root` 里的变量，同时支持浅色和深色 |
-| `index.html` | 入口，按顺序加载 `firebase-config.js` → `engine.js` → `app.js` |
-| `firebase-config.js` | Firebase 网页配置（公开值，可以提交） |
-| `firestore.rules` | 数据库安全规则，**改了以后要由人手动粘贴到 Firebase 控制台发布** |
-| `tests/` | 测试，见下文 |
+| `engine.js` | All game rules. `CFG` holds every number; `simulate(seed, logs)` replays both players' action logs into the game state |
+| `app.js` | Rendering, Firebase sync, local test mode (ES module) |
+| `style.css` | Styles; colors are `:root` tokens with light and dark themes |
+| `index.html` | Entry; loads `firebase-config.js` → `engine.js` → `app.js` |
+| `firebase-config.js` | Firebase web config (public values, safe to commit) |
+| `firestore.rules` | Security rules. **After changing them, a person must paste them into the Firebase console and publish** |
+| `tests/` | Tests, see below |
 
-## 架构要点（改代码前必须理解）
+## Architecture (understand before editing)
 
-1. **确定性重放**：游戏状态从不直接存进数据库。每位玩家只往自己的座位文档 `games/{code}/seats/{p1|p2}` 追加行动（`log` 数组）。两边浏览器都用 `simulate(seed, {p1: log, p2: log})` 从头算出同一个状态。所以 `engine.js` 里**不能用 `Math.random()` 或当前时间**，随机数一律用 `rand(seed, tag)` / `d6(seed, tag)`。
-2. **行动键 `k`**：每个行动带一个键，比如 `"3:market:5"`（第 3 天、市场阶段、第 5 步）。每天的阶段顺序：事件 `event` → 投资 `invest` → 市场 `market` → 放牌 `commit` → 应对 `respond` → 翻牌 `reveal`（自动）→ 补偿券 `voucher` → 复盘 `report`。`expected(S)` 决定当前等谁、等哪个键；键不匹配的行动会被丢弃，这样重复点击不会生效两次。新增阶段时要同时改 `expected()`、`apply()` 和 `app.js` 里的 `actionHTML()`。
-3. **背面朝上的广告牌**：放牌时公开的只有每家店门口的张数（`nSelf` / `nRival`）和校验码 `adHash({selfReal, selfBlank, rivalReal, rivalBlank}, salt)`；真假组合存在本机和 `users/{uid}/ads/...`（只有本人可读）。双方应对完后各自自动翻牌，`apply('reveal')` 核对校验码和张数，对不上就把这位玩家的牌全按空牌算。牌钱在翻牌时才扣，所以应对阶段界面要先为自己的牌预留这笔钱。
-4. **营业过程逐步揭晓**：`runService()` 把每一次随机（翻牌、声誉客人、预订）按顺序记进 `S.service[座位].steps`。界面的 `openingHTML()` / `tick()` 只是把这些步骤一条条播出来，不参与计算；看没看过动画只记在本机（`played:` 开头的 localStorage），不同步给对手。新增随机项时，记得同时加一种 step 和 `stepLine()` 里对应的文字。
-5. **占位数值**：`CFG` 里注释标“待定”的数字（真牌和空牌的价格、每家店门口最多几张、声誉客人的到店概率、临时加桌和紧急补货的价格）是占位值，等小组定稿后替换。
-6. **版本一致**：两位玩家必须运行同一版 `engine.js`，否则算出的结果不同。改了规则或数值后，进行中的旧对局会按新规则重算。提醒小组：改版放在两局之间，并让双方刷新页面。
+1. **Deterministic replay**: game state is never stored in the database. Each player only appends actions to their own seat doc `games/{code}/seats/{p1|p2}` (the `log` array). Both browsers rebuild the same state with `simulate(seed, {p1: log, p2: log})`. So **`engine.js` must never use `Math.random()` or the current time**; use `rand(seed, tag)` / `d6(seed, tag)` for randomness.
+2. **Action keys `k`**: every action carries a key like `"3:market:5"` (day 3, market phase, step 5). Daily phase order: `event` → `invest` → `market` → `commit` (place cards) → `respond` (prep) → `reveal` (automatic) → `voucher` → `report`. `expected(S)` decides who we're waiting on and for which key; actions with the wrong key are dropped, so double clicks don't apply twice. A new phase needs changes in `expected()`, `apply()` and `actionHTML()` in `app.js`.
+3. **Face-down ad cards**: at placement, only the card count per shop (`nSelf` / `nRival`) and a checksum `adHash({selfReal, selfBlank, rivalReal, rivalBlank}, salt)` are public. The real/bluff split is kept on the device and in `users/{uid}/ads/...` (readable only by that player). After both players finish Prep, each side reveals automatically; `apply('reveal')` checks the checksum and counts, and if they don't match, all of that player's cards count as bluffs. Cards are paid for at the flip, so the Prep screen must set aside that money first.
+4. **Step-by-step service**: `runService()` records every random event (card flips, star-driven customers, bookings) in order in `S.service[seat].steps`. `openingHTML()` / `tick()` in the page only play those steps back and do no math. Whether a player has watched the playback is stored only locally (localStorage keys starting with `played:`), not synced. A new random element needs a new step kind plus its text in `stepLine()`.
+5. **Private information**: events (shady deal, booking) and their outcomes are shown only to the player they happen to; see `eventHTML()`, `publicCapacity()`, `PRIVATE_LINES` and `PRIVATE_WHY` in `app.js`.
+6. **Hints**: each decision screen has one short line built with `hint()` in `app.js`. Keep hints to a single line.
+7. **Placeholder numbers**: values marked TBD in `CFG` comments (card prices, cards per shop, star-customer chances, pop-up table and rush food prices) are placeholders until the team settles them.
+8. **Same version on both sides**: both players must run the same `engine.js`, or they'll compute different results. Changing rules or numbers recomputes games in progress under the new rules. Remind the team to change versions between games and have both players refresh.
 
-## Firestore 数据结构
-
-```
-games/{code}                 { seed, host, created, v }      房主创建，之后不可改
-games/{code}/seats/p1|p2     { uid, name, log: [行动...] }   只有座位本人能更新
-users/{uid}/ads/{code}-r{n}  { selfReal, selfBlank, rivalReal, rivalBlank, salt }  只有本人可读写
-```
-
-改了路径或字段，就要同步修改 `firestore.rules`，并告诉小组需要去控制台重新发布规则。
-
-## 测试（每次修改后都要跑）
+## Firestore data
 
 ```
-node tests/engine.test.js        # 随机模拟 2000 局，检查不会卡住、星级在 1–5 之间
+games/{code}                 { seed, host, created, v }                           created by the host, never changed
+games/{code}/seats/p1|p2     { uid, name, log: [actions...] }                     only the seated player can update
+users/{uid}/ads/{code}-r{n}  { selfReal, selfBlank, rivalReal, rivalBlank, salt }  only that player can read/write
 ```
 
-界面和联机流程（需要 Python 的 playwright 和 Chromium）：
+If you change paths or fields, update `firestore.rules` too and tell the team to republish the rules in the console.
+
+## Tests (run after every change)
 
 ```
-python3 -m http.server 8765 &     # 在仓库根目录
+node tests/engine.test.js        # simulates 2000 random games; checks nothing gets stuck, stars stay 1–5, replays are deterministic
+```
+
+UI and online flow (needs Python playwright and Chromium):
+
+```
+python3 -m http.server 8765 &     # from the repo root
 python3 tests/online.test.py http://localhost:8765/index.html
 ```
 
-`online.test.py` 用 `tests/fake-backend.js` 冒充 Firebase，在两个页面里各扮演一位玩家打完一整局，检查两边结果一致、广告揭晓校验通过、没有页面报错。`app.js` 里检测 `window.__RR_FAKE_FB` 的那段是给这个测试用的，不要删。
+`online.test.py` uses `tests/fake-backend.js` in place of Firebase and plays a full game as two players on two pages, checking both sides get the same result, card reveals pass the checksum, and there are no page errors. The `window.__RR_FAKE_FB` check in `app.js` is for this test; don't remove it.
 
-## 发布
+## Publishing
 
-推送到 `main` 分支，GitHub Pages 会在约 1 分钟内自动更新。**每次改了 `style.css`、`engine.js`、`app.js` 或 `firebase-config.js`，都要把 `index.html` 里这几个文件后面的 `?v=...` 改成新值**（比如当前提交的短哈希），否则玩家的浏览器可能继续用缓存里的旧文件。提交信息用中文简短说明改了什么，方便小组看懂。
+Push to `main`; GitHub Pages updates in about a minute. **Whenever `style.css`, `engine.js`, `app.js` or `firebase-config.js` changes, bump the `?v=...` after those files in `index.html`** (e.g. to the current short commit hash), or browsers may keep cached old files. Write short commit messages in English describing what changed.
 
-## 相关文档
+## Related docs
 
-- 第一版原型提案（规则和数值的来源）：https://claude.ai/artifact/XXaDQPnC3Tgbi1U9Z1FE2t （仅对分享过的人可见）
-- 设置和部署步骤：`README.md`
+- v1 prototype proposal (source of the rules and numbers): https://claude.ai/artifact/XXaDQPnC3Tgbi1U9Z1FE2t (visible only to people it's shared with)
+- Playtest 1 notes: https://claude.ai/artifact/Ke61jjQgiuCPV23Q89BpHN
+- Setup and deployment: `README.md`

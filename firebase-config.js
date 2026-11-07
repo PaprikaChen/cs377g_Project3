@@ -1,5 +1,5 @@
-// Firebase 网页配置（来自控制台“项目设置 → 您的应用”）。
-// 这些值会出现在网页源码里，这是正常的：数据安全靠 firestore.rules 里的安全规则保护。
+// Firebase web config (from the console: Project settings → Your apps).
+// These values are visible in the page source; that's expected. The data is protected by firestore.rules.
 window.FIREBASE_CONFIG = {
   apiKey: "AIzaSyCP8PD1iTLhbn3ROFtJbGR-fVn9MFOho7w",
   authDomain: "cs377g-project3.firebaseapp.com",

@@ -1,28 +1,28 @@
 // ===== Rules engine: replays both players' action logs into the game state =====
 const CFG = {
   rounds: 5, startCash: 100, startStars: 3,
-  // price = 每桌收入（餐费含小费，固定）
-  // ⚠ 标“待定”的数字是占位值，等小组定稿
+  // price = income per table served (fixed, tips included)
+  // ⚠ numbers marked TBD are placeholders until the team settles them
   loc: {
     country: { name: 'Countryside', tag: '$$', open: 20, rent: 5, tables: 6, price: 8, free: 2 },
     city:    { name: 'City', tag: '$$$', open: 35, rent: 12, tables: 4, price: 12, free: 0 }
   },
   baseDemand: 6, tableCost: 6, maxTables: 14,
-  // 广告牌（价格待定）：每天可以买任意张，背面朝上放在自己或对手店前
-  //   real  真广告牌的价格，翻开后一定带来 customers 位客人
-  //   blank 空牌的价格，翻开后什么也没有，只用来虚张声势
-  //   maxPerShop 每天往一家店前最多放几张
+  // Ad cards (prices TBD): buy any number each day, placed face down at your shop or your rival's
+  //   real  price of a real ad; when flipped it always brings `customers` customers
+  //   blank price of a bluff; brings nobody, it's only for show
+  //   maxPerShop most cards you can place at one shop per day
   ad: { real: 6, blank: 2, customers: 2, maxPerShop: 4 },
-  // 声誉（概率待定）：每高于 3 星一颗，多 perStar 位潜在客人，每人按 chance 到店；
-  //                   每低于 3 星一颗，有 perStar 位基础客人各按 loseChance 的概率不来
+  // Stars (chances TBD): each star above 3 adds perStar maybe-customers, each arriving with `chance`;
+  //                    each star below 3 puts perStar regulars at risk, each staying away with `loseChance`
   rep: { perStar: 2, chance: 0.5, loseChance: 0.5 },
-  // 翻牌前的临时扩容（价格待定，只在当天有效）
-  //   tempTable 临时加桌，每张的价格（只用当天）；tempTableMax 每天最多加几张
-  //   rushIngr 紧急补货，每份食材的价格；rushIngrMax 每天最多补几份
+  // Prep before the flip (prices TBD, today only)
+  //   tempTable price per pop-up table (today only); tempTableMax most per day
+  //   rushIngr price per rush food; rushIngrMax most per day
   respond: { tempTable: 4, tempTableMax: 4, rushIngr: 3, rushIngrMax: 8 },
   market: { stock: 24, tiers: [[8, 1], [16, 2], [24, 3]], maxPerTurn: 3 },
   voucher: 3,
-  // 贷款（暂时关闭）：enabled 改成 true 就恢复——投资时可以主动贷款，付不起开支时自动贷款
+  // Loans (off for now): set enabled to true to bring back the Build-phase loan and the automatic loan when rent can't be paid
   loan: { enabled: false, amount: 30, repay: 40 },
   starValue: 10, shady: { cash: 15, fine: 20 }, noshow: { pay: 30, tables: 2 }
 };
@@ -50,7 +50,7 @@ function rand(seed, tag) {
   };
 }
 const d6 = (seed, tag) => 1 + Math.floor(rand(seed, tag)() * 6);
-// 广告牌的暗中提交：只公开每家店前的张数，真假组合用校验码锁住
+// Hidden card placement: only the count per shop is public; the real/bluff split is locked with a checksum
 const adHash = (c, salt) => String(cyrb53(`${c.selfReal}|${c.selfBlank}|${c.rivalReal}|${c.rivalBlank}|${salt}`));
 const adCost = c => (c.selfReal + c.rivalReal) * CFG.ad.real + (c.selfBlank + c.rivalBlank) * CFG.ad.blank;
 
@@ -77,7 +77,7 @@ function money(p, label, amt) { p.cash = round2(p.cash + amt); p.ledger.push({ l
 function note(p, label) { p.ledger.push({ label, amt: null }); }
 
 // Expected customers before the doors open (the page shows this as a forecast; the real number is rolled at service).
-// realCards = 确定是真的广告牌；unknownCards = 不知真假的牌（最多都是真的）
+// realCards = cards known to be real; unknownCards = cards of unknown type (at most all real)
 function expectedDemand(p, realCards = 0, unknownCards = 0) {
   const d = p.stars - CFG.startStars, per = CFG.rep.perStar;
   const rep = d > 0 ? d * per * CFG.rep.chance : -(-d) * per * CFG.rep.loseChance;

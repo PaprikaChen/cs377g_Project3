@@ -6,7 +6,7 @@ async def main():
         b = await p.chromium.launch(); ctx = await b.new_context(viewport={'width':1200,'height':900})
         fake=open(__import__('os').path.join(__import__('os').path.dirname(__file__),'fake-backend.js')).read(); errs=[]
         pages=[]
-        for uid,nick in [('u1','小林'),('u2','阿明')]:
+        for uid,nick in [('u1','Sam'),('u2','Alex')]:
             pg = await ctx.new_page()
             await pg.add_init_script(f"window.__RR_UID='{uid}';"+fake)
             pg.on('pageerror', lambda e: errs.append(str(e)))
