@@ -1,4 +1,4 @@
-# Restaurant Rivals · online prototype v1
+# Restaurant Rivals · online prototype v2
 
 A two-player restaurant game you play on two devices in the browser. Game data lives in Firebase (Firestore + anonymous sign-in), so players don't need an account: open the page, type a room code, play.
 
@@ -12,6 +12,7 @@ Live site: https://paprikachen.github.io/cs377g_Project3/
 | `style.css` | Styles |
 | `engine.js` | Game rules and numbers (edit the values in `CFG`) |
 | `app.js` | Screens, online sync, local test mode |
+| `art.js` | The line drawings: icons, shop pictures, the restaurant scene |
 | `firebase-config.js` | Our Firebase web config |
 | `firestore.rules` | Database security rules; paste into the Firebase console to publish |
 | `tests/` | Automated tests |
@@ -48,7 +49,7 @@ Pushing to `main` updates GitHub Pages in about a minute. GitHub caches pages fo
 
 1. Player 1 enters a name, clicks **Create room**, and sends the link and the 4-letter room code to player 2.
 2. Player 2 opens the page, enters a name and the room code.
-3. Each day: Event → Build → Market (take turns buying food) → Ads (face-down real or bluff cards, at your shop or your rival's) → Prep (pop-up tables and rush food before the flip) → Service (cards flip, customers arrive one by one) → Recap. Score after day 5.
+3. Each day: Morning (deliveries, robbery, warnings) → Build (tables + your private event) → Market (live: both click at once, first click wins, a cooldown bar after each buy) → Ads (a random shop each day; cards for your shop and tricks for your rival's, all face down) → Service (cards flip, guests arrive in groups; when you run short you get a few seconds to rush food or borrow a table) → Recap. Score after day 5.
 4. After a refresh or a dropped connection, click **Back to [room]** to continue.
 
 **Local test** needs no Firebase: one person plays both shops on one screen. Good for tuning numbers.
@@ -57,20 +58,44 @@ Pushing to `main` updates GitHub Pages in about a minute. GitHub caches pages fo
 
 All rule values are in `CFG` at the top of `engine.js`:
 
-- `loc.country` / `loc.city`: opening cost, rent, starting tables, income per table `price`, free food
-- `ad`: real card price `real`, bluff price `blank`, customers each real card brings `customers`, cards allowed per shop `maxPerShop`
-- `respond`: prices and daily limits for pop-up tables and rush food
+- `loc.country` / `loc.city`: opening cost, rent, starting tables, income per table `price`
+- `market`: daily stock, total time, Express / Regular price and cooldown, chance Regular arrives tomorrow, how far the split drifts from half
+- `shop` and `ads`: how many cards the daily shop shows, and every ad card's price and effect
+- `service`: patience, time per rush/borrow, their price ranges, chance the neighbour says no, villager chance, event chances and effects
+- `emptyTables`, `robbery`: empty-table star penalty and overnight robbery
 - `rep`: extra customers from high stars and their arrival chance, and the chance of losing regulars at low stars
-- `market`: daily stock of 24 and the three price tiers
 - `voucher`: comp voucher price
 - `loan.enabled`: loans are off (`false`); set to `true` to bring them back
 - `starValue`: how much each star is worth in the final score
 
 Save and refresh. **Both players must run the same version of the rules.** Changing numbers mid-game makes the two sides compute different results, so change them between games.
 
+## v2 changes (2026-11-07)
+
+Based on our in-group playtest notes (dominant strategies: buy everything early in the market, bluff every time, add lots of tables on day 1; plus several unclear rules), we reworked the prototype:
+
+- **Live market**: 15 items on screen at once, both players click at the same time, first click wins. Express ($6) arrives today with a 3s cooldown; Regular ($3) arrives today or tomorrow (50/50, revealed when its 5s cooldown ends). 60 seconds in total. No Regular on day 5, with a warning on day 4. Tomorrow's food shows up on a new morning page.
+- **Ad shop**: a new random shop for each player every day: 1 location card + 2 general cards for your own shop, 3 cards for your rival's shop (false advertisement, bad review, poach, swamp, fake booking, corner the rush supplier). Each card can be bought once; all cards are face down. No more bluffs on your own shop.
+- **Interactive service**: guests arrive in groups. Only when tables or food run out, a popup gives you 8 seconds of patience to rush food ($7–10, 2s each) or borrow a table from next door ($5–8, 30% chance they say no), one at a time. Pop-up tables and rush food moved here from the old Prep step.
+- **Events**: one random event per day (60%): someone asks for free food (villager / homeless man; give → 20% chance of +1 star, refuse → 50% chance of −1 star), a fight (−2 tables for good, −2 food), a proposal (50%: +$20 tip), a storm (countryside) or protest (city) (−3 guests). Villagers may bring 2 food when you run short in the countryside (15%). The shady deal and booking events are now per player and resolve during service. Overnight robbery: 5% chance, takes half your cash, at most $30. The countryside's free daily food is gone.
+- **Stars**: more than half your tables empty at closing → 50% chance of −1 star.
+- **Clarity**: skippable intro cards, a progress bar for the day, rules shown only for the current step, pros/cons on the shop pick, hints that do the math ("expect X guests · seat min(tables, food)").
+- **Visuals (first pass)**: line drawings in `art.js`: the market is a shelf with two distinct icons, service is a drawn restaurant where stick figures walk to tables, ad cards and events have icons.
+
+All new numbers are placeholders (marked TBD in `CFG`) until we playtest them.
+
+**Still to do**: the visuals and the writing are not intuitive enough yet. Both need a lot more revision and polish (clearer icons, less text, better feedback when things happen, checking phone layouts), and the numbers need balancing after real playtests.
+
+## Ideas to try later (v2 alternatives)
+
+- **Regular delivery reveal**: now you find out "today or tomorrow" when the cooldown bar ends. Alternative: keep it hidden until the doors open, so it's a real gamble.
+- **Patience bar**: now the whole waiting group shares one bar. Alternative: each guest has their own bar and they leave one by one.
+
 ## Fairness
 
-- When cards are placed, the rival sees only how many there are plus a checksum. The real/bluff split is revealed at the flip and checked against the checksum, so it can't be changed afterward.
+- When cards are placed, the rival sees only how many there are plus a checksum. Which cards they are is revealed at the flip and checked against the checksum, so it can't be changed afterward.
+- The live market lives in `games/{code}/market/d{day}`; every click is a Firestore transaction, so two players can never get the same item. **After pulling v2, republish `firestore.rules` in the Firebase console** or the market won't work online.
+- Service clicks (rush food, borrowing tables) happen on your own device and are saved to your log when you close for the day.
 - Each player can only edit their own action log; `firestore.rules` enforces this.
 - This is a class prototype: a technical player could work out dice rolls early with browser dev tools. Not a concern for playtesting.
 

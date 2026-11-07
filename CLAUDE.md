@@ -17,6 +17,7 @@ A two-player web game that teaches restaurant management to players aged 13+. It
 | --- | --- |
 | `engine.js` | All game rules. `CFG` holds every number; `simulate(seed, logs)` replays both players' action logs into the game state |
 | `app.js` | Rendering, Firebase sync, local test mode (ES module) |
+| `art.js` | Line-art SVG drawings, display only: `ART.icon(name)` icon set (goods, ad cards, events), `ART.place(loc)`, and `ART.store(state)`, the shop scene drawn during service from each step's `snap` |
 | `style.css` | Styles; colors are `:root` tokens with light and dark themes |
 | `index.html` | Entry; loads `firebase-config.js` → `engine.js` → `app.js` |
 | `firebase-config.js` | Firebase web config (public values, safe to commit) |
@@ -26,20 +27,23 @@ A two-player web game that teaches restaurant management to players aged 13+. It
 ## Architecture (understand before editing)
 
 1. **Deterministic replay**: game state is never stored in the database. Each player only appends actions to their own seat doc `games/{code}/seats/{p1|p2}` (the `log` array). Both browsers rebuild the same state with `simulate(seed, {p1: log, p2: log})`. So **`engine.js` must never use `Math.random()` or the current time**; use `rand(seed, tag)` / `d6(seed, tag)` for randomness.
-2. **Action keys `k`**: every action carries a key like `"3:market:5"` (day 3, market phase, step 5). Daily phase order: `event` → `invest` → `market` → `commit` (place cards) → `respond` (prep) → `reveal` (automatic) → `voucher` → `report`. `expected(S)` decides who we're waiting on and for which key; actions with the wrong key are dropped, so double clicks don't apply twice. A new phase needs changes in `expected()`, `apply()` and `actionHTML()` in `app.js`.
-3. **Face-down ad cards**: at placement, only the card count per shop (`nSelf` / `nRival`) and a checksum `adHash({selfReal, selfBlank, rivalReal, rivalBlank}, salt)` are public. The real/bluff split is kept on the device and in `users/{uid}/ads/...` (readable only by that player). After both players finish Prep, each side reveals automatically; `apply('reveal')` checks the checksum and counts, and if they don't match, all of that player's cards count as bluffs. Cards are paid for at the flip, so the Prep screen must set aside that money first.
-4. **Step-by-step service**: `runService()` records every random event (card flips, star-driven customers, bookings) in order in `S.service[seat].steps`. `openingHTML()` / `tick()` in the page only play those steps back and do no math. Whether a player has watched the playback is stored only locally (localStorage keys starting with `played:`), not synced. A new random element needs a new step kind plus its text in `stepLine()`.
-5. **Private information**: events (shady deal, booking) and their outcomes are shown only to the player they happen to; see `eventHTML()`, `publicCapacity()`, `PRIVATE_LINES` and `PRIVATE_WHY` in `app.js`.
-6. **Hints**: each decision screen has one short line built with `hint()` in `app.js`. Keep hints to a single line.
-7. **Placeholder numbers**: values marked TBD in `CFG` comments (card prices, cards per shop, star-customer chances, pop-up table and rush food prices) are placeholders until the team settles them.
-8. **Same version on both sides**: both players must run the same `engine.js`, or they'll compute different results. Changing rules or numbers recomputes games in progress under the new rules. Remind the team to change versions between games and have both players refresh.
+2. **Action keys `k`**: every action carries a key like `"3:market"` (day 3, market phase). Daily phase order (v2): `morning` (day 2+) → `invest` (tables + that player's own event choice) → `market` → `commit` (buy/place ad cards) → `reveal` (automatic) → `service` → `voucher` → `report`. `expected(S)` decides who we're waiting on and for which key; actions with the wrong key are dropped, so double clicks don't apply twice. A new phase needs changes in `expected()`, `apply()` and `actionHTML()` in `app.js`.
+3. **Live market (the one real-time exception)**: who got which item is settled live in `games/{code}/market/d{day}` (`owner` map + `start` time); each click is an `fb.tx()` transaction, so the first click wins. Cooldowns and the 60s timer run on each device. When a player finishes, their action is `{k, buys:[item indexes]}`, and `apply('market')` replays it (if both logs ever claim one item, P1 keeps it). Item types come from `marketItems(seed, day)`, and Regular today/tomorrow from `regTomorrow()`, so both sides agree without storing them.
+4. **Face-down ad cards**: the daily shop is `shopFor()` (seeded, per player). At placement only the counts (`nSelf` / `nRival`) and `adHash({self, rival}, salt)` are public; the card ids are kept on the device and in `users/{uid}/ads/...`. `apply('reveal')` checks the checksum; on failure the cards do nothing and cost nothing. Cards are paid at the flip.
+5. **Interactive service**: `prepService()` rolls everything random for the day into `S.script[seat]` (card outcomes, the day's event, booking/inspector rolls). `serviceRun(S, seat, ops, closed)` is shared by engine and page: it plays the script with the player's choices `ops` (`{ep, a:'rush'|'borrow'}` per shortage episode, `{a:'food', give}`) and, when `closed` is finite, stops at the first open shortage / unanswered choice and returns it as `pending`. The page (`serviceTick()`, `svcAction()`) runs the patience and delivery bars in real time and logs `{k, ops}` when the player closes for the day; `finishService()` replays it. Prices and borrow refusals come from `opPrice()` / `borrowOk()` (seeded per episode and try). A new random element needs a field in the script plus its text in `stepLine()`.
+6. **Rendering while live**: during market and service the page ticks every 200ms but only re-renders when `liveSig()` changes; bars (`tbar()` with `data-t0/t1`) and countdowns are moved in place by `updateBars()`. Don't re-render on every tick: replacing buttons under the pointer drops clicks.
+7. **Private information**: each player's morning event (shady deal, booking) and its outcome are shown only to them; see `eventChoiceHTML()`, `PRIVATE_LINES` and `PRIVATE_WHY` in `app.js`.
+8. **Hints and rules**: each decision screen has one short line built with `hint()` (or `mathHint()` for the "expect X guests · seat min(tables, food)" line) in `app.js`. Keep hints to a single line. Rules are shown per step from `RULES` in `app.js`; there's no global rules box any more.
+9. **Placeholder numbers**: values marked TBD in `CFG` comments (ad cards, service prices and chances, event numbers) are placeholders until the team settles them.
+10. **Same version on both sides**: both players must run the same `engine.js`, or they'll compute different results. Changing rules or numbers recomputes games in progress under the new rules. Remind the team to change versions between games and have both players refresh.
 
 ## Firestore data
 
 ```
 games/{code}                 { seed, host, created, v }                           created by the host, never changed
 games/{code}/seats/p1|p2     { uid, name, log: [actions...] }                     only the seated player can update
-users/{uid}/ads/{code}-r{n}  { selfReal, selfBlank, rivalReal, rivalBlank, salt }  only that player can read/write
+games/{code}/market/d{n}     { owner: {itemIndex: 'p1'|'p2'}, start }             live market for day n; claimed by transaction
+users/{uid}/ads/{code}-r{n}  { self: [cardIds], rival: [cardIds], salt }          only that player can read/write
 ```
 
 If you change paths or fields, update `firestore.rules` too and tell the team to republish the rules in the console.
@@ -61,7 +65,7 @@ python3 tests/online.test.py http://localhost:8765/index.html
 
 ## Publishing
 
-Push to `main`; GitHub Pages updates in about a minute. **Whenever `style.css`, `engine.js`, `app.js` or `firebase-config.js` changes, bump the `?v=...` after those files in `index.html`** (e.g. to the current short commit hash), or browsers may keep cached old files. Write short commit messages in English describing what changed.
+Push to `main`; GitHub Pages updates in about a minute. **Whenever `style.css`, `engine.js`, `art.js`, `app.js` or `firebase-config.js` changes, bump the `?v=...` after those files in `index.html`** (e.g. to the current short commit hash), or browsers may keep cached old files. Write short commit messages in English describing what changed.
 
 ## Related docs
 

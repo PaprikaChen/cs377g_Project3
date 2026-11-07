@@ -1,48 +1,63 @@
-import asyncio, sys
+import asyncio, sys, os
 from playwright.async_api import async_playwright
-SEL=['[data-act=pick]','[data-act=event]','[data-act=invest]','[data-act=buy][data-n="3"]:not([disabled])','[data-act=buy][data-n="0"]','[data-act=commit]','[data-act=respond]','[data-act=skip]','[data-act=voucher]','[data-act=next]']
+
+# Plays a full v2 game as two players on two pages over the fake backend (tests/fake-backend.js).
+# Usage: python tests/online.test.py http://localhost:8765/index.html
+ORDER = ['[data-act=introskip]', '[data-act=pick]', '[data-act=next]', '[data-act=voucher]', '[data-act=svcdone]',
+         '[data-act=svc][data-a=refuse]', '[data-act=svc][data-a=rush]:not([disabled])', '[data-act=svc][data-a=letgo]',
+         '[data-act=play]']
+
+async def step(pg, state):
+    try: await _step(pg, state)
+    except Exception as e: state['retries'] = state.get('retries', 0) + 1  # the screen moved on under the click
+
+async def _step(pg, state):
+    ph = await pg.evaluate('__rr.S && __rr.S.phase')
+    if ph == 'invest':
+        if await pg.locator('[data-act=choose]').count(): await pg.locator('[data-act=choose]').first.click()
+        if await pg.locator('[data-act=invest]:not([disabled])').count(): await pg.locator('[data-act=invest]').click(); return
+    if ph == 'market' and await pg.locator('[data-act=mkdone]').count():
+        n = state.setdefault('grabs', {}).get(id(pg), 0)
+        free = pg.locator('.item:not([disabled]):not(.poor):not(.wait)')
+        if n < 3 and await free.count():
+            await free.first.click(); state['grabs'][id(pg)] = n + 1; return
+        await pg.locator('[data-act=mkdone]').click(); state['grabs'][id(pg)] = 0; return
+    if ph == 'commit' and await pg.locator('[data-act=commit]').count():
+        if not await pg.locator('.ad.on').count() and await pg.locator('[data-act=ad]:not([disabled])').count():
+            await pg.locator('[data-act=ad]:not([disabled])').first.click()
+        await pg.locator('[data-act=commit]').click(); return
+    for s in ORDER:
+        if await pg.locator(s).count():
+            await pg.locator(s).first.click(); return
+
 async def main():
     async with async_playwright() as p:
-        b = await p.chromium.launch(); ctx = await b.new_context(viewport={'width':1200,'height':900})
-        fake=open(__import__('os').path.join(__import__('os').path.dirname(__file__),'fake-backend.js')).read(); errs=[]
-        pages=[]
-        for uid,nick in [('u1','Sam'),('u2','Alex')]:
+        b = await p.chromium.launch(); ctx = await b.new_context(viewport={'width': 1200, 'height': 900}); ctx.set_default_timeout(1500); ctx.set_default_navigation_timeout(30000)
+        fake = open(os.path.join(os.path.dirname(__file__), 'fake-backend.js')).read(); errs = []
+        pages = []
+        for uid, nick in [('u1', 'Sam'), ('u2', 'Alex')]:
             pg = await ctx.new_page()
-            await pg.add_init_script(f"window.__RR_UID='{uid}';"+fake)
+            await pg.add_init_script(f"window.__RR_UID='{uid}';" + fake)
             pg.on('pageerror', lambda e: errs.append(str(e)))
             await pg.goto(sys.argv[1]); await pg.wait_for_timeout(300)
             await pg.fill('#nick-in', nick); pages.append(pg)
-        A,B=pages
+        A, B = pages
         await A.click('[data-act=create]'); await A.wait_for_timeout(400)
-        code = await A.evaluate('__rr.code'); print('code',code)
+        code = await A.evaluate('__rr.code'); print('code', code)
         await B.fill('#code-in', code); await B.click('form[data-form=join] button'); await B.wait_for_timeout(400)
-        shot = False
-        for i in range(600):
+        state = {}
+        for i in range(3000):
             phA = await A.evaluate('__rr.S && __rr.S.phase'); phB = await B.evaluate('__rr.S && __rr.S.phase')
-            if phA=='over' and phB=='over': break
-            if not shot and await A.locator('[data-act=play]').count():
-                await A.click('[data-act=play]'); await A.wait_for_timeout(5000)
-                await A.screenshot(path='/tmp/opening.png', full_page=True); shot = True
-                await A.wait_for_timeout(9000); await A.screenshot(path='/tmp/opening-end.png', full_page=True)
-            for pg in pages:
-                ph = await pg.evaluate('__rr.S && __rr.S.phase')
-                if ph=='commit' and await pg.locator('[data-act=commit]').count():
-                    await pg.locator('[data-act=inc][data-f=rr][data-d="1"]').click()
-                    await pg.locator('[data-act=inc][data-f=sb][data-d="1"]').click()
-                if ph=='respond' and await pg.locator('[data-act=respond]').count():
-                    if pg is A and not shot: await pg.screenshot(path='/tmp/respond.png', full_page=True)
-                    await pg.locator('[data-act=inc][data-f=rush][data-d="1"]').click()
-                    await pg.locator('[data-act=inc][data-f=tt][data-d="1"]').click()
-                for s in SEL:
-                    if await pg.locator(s).count():
-                        await pg.locator(s).first.click(); break
-            await A.wait_for_timeout(60)
-            if i==60: await B.screenshot(path='/tmp/online-B.png', full_page=True)
-            if i==40: await A.screenshot(path='/tmp/online-A.png', full_page=True)
+            if phA == 'over' and phB == 'over': break
+            for pg in pages: await step(pg, state)
+            await A.wait_for_timeout(80)
         ra = await A.evaluate('JSON.stringify(__rr.S.result)'); rb = await B.evaluate('JSON.stringify(__rr.S.result)')
-        print('same result:', ra==rb, ra)
-        print('opp name on B:', await B.evaluate("document.querySelector('.rest[data-seat=p1] .who').textContent"))
-        print('reveal ok:', await A.evaluate('JSON.stringify(__rr.S.reveals)'))
+        print('phases', phA, phB, 'loops', i)
+        print('same result:', ra == rb, ra)
+        print('reveal ok:', await A.evaluate('JSON.stringify(Object.fromEntries(Object.entries(__rr.S.reveals).map(([k,v])=>[k,v.ok])))'))
+        print('history p1:', await A.evaluate('JSON.stringify(__rr.S.players.p1.history.map(h=>[h.round,h.demand,h.served,h.turned,h.cash,h.stars]))'))
+        print('click retries', state.get('retries', 0))
         print('errors', errs[:5])
         await b.close()
+
 asyncio.run(main())

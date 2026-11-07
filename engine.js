@@ -1,26 +1,53 @@
-// ===== Rules engine: replays both players' action logs into the game state =====
+// ===== Rules engine (v2): replays both players' action logs into the game state =====
+// ⚠ Numbers marked TBD are placeholders until the team settles them.
 const CFG = {
   rounds: 5, startCash: 100, startStars: 3,
   // price = income per table served (fixed, tips included)
-  // ⚠ numbers marked TBD are placeholders until the team settles them
   loc: {
-    country: { name: 'Countryside', tag: '$$', open: 20, rent: 5, tables: 6, price: 8, free: 2 },
-    city:    { name: 'City', tag: '$$$', open: 35, rent: 12, tables: 4, price: 12, free: 0 }
+    country: { name: 'Countryside', tag: '$$', open: 20, rent: 5, tables: 6, price: 8 },
+    city:    { name: 'City', tag: '$$$', open: 35, rent: 12, tables: 4, price: 12 }
   },
   baseDemand: 6, tableCost: 6, maxTables: 14,
-  // Ad cards (prices TBD): buy any number each day, placed face down at your shop or your rival's
-  //   real  price of a real ad; when flipped it always brings `customers` customers
-  //   blank price of a bluff; brings nobody, it's only for show
-  //   maxPerShop most cards you can place at one shop per day
-  ad: { real: 6, blank: 2, customers: 2, maxPerShop: 4 },
-  // Stars (chances TBD): each star above 3 adds perStar maybe-customers, each arriving with `chance`;
-  //                    each star below 3 puts perStar regulars at risk, each staying away with `loseChance`
+  // Stars: each star above 3 adds perStar maybe-customers (each comes with `chance`);
+  //        each star below 3 puts perStar regulars at risk (each stays away with `loseChance`)
   rep: { perStar: 2, chance: 0.5, loseChance: 0.5 },
-  // Prep before the flip (prices TBD, today only)
-  //   tempTable price per pop-up table (today only); tempTableMax most per day
-  //   rushIngr price per rush food; rushIngrMax most per day
-  respond: { tempTable: 4, tempTableMax: 4, rushIngr: 3, rushIngrMax: 8 },
-  market: { stock: 24, tiers: [[8, 1], [16, 2], [24, 3]], maxPerTurn: 3 },
+  // Live online market: all items on screen at once, both players click at the same time.
+  //   Express arrives today; Regular arrives today or tomorrow (revealed when its cooldown bar ends).
+  //   cd = cooldown in seconds after buying one; time = total seconds; jitter = ± how far the express/regular split drifts from half
+  market: { stock: 15, time: 60, jitter: 2,
+    exp: { price: 6, cd: 3 }, reg: { price: 3, cd: 5, tomorrow: 0.5 } },
+  // Ad shop (all TBD): each day you see 1 location card + 2 general cards for your shop, and 3 random cards for your rival's shop.
+  // Every card can be bought once. All cards go face down; the other player only sees how many.
+  shop: { loc: 1, general: 2, rival: 3 },
+  ads: {
+    delivery: { side: 'self', loc: 'city', name: 'Delivery app spotlight', price: 6, n: 2, desc: '+2 delivery orders: they use food but no table' },
+    lunch:    { side: 'self', loc: 'city', name: 'Office lunch deal', price: 4, n: 3, off: 4, desc: '3 guests for sure, each pays $4 less' },
+    subway:   { side: 'self', loc: 'city', name: 'Subway poster', price: 10, n: 4, low: 2, lowChance: 0.3, desc: '+4 guests (30% chance it gets lost in the crowd: only 2)' },
+    stall:    { side: 'self', loc: 'country', name: "Farmers' market stall", price: 5, n: 1, food: 1, desc: '+1 guest and 1 free food' },
+    bus:      { side: 'self', loc: 'country', name: 'Tour bus stop', price: 8, n: 6, chance: 0.5, desc: '50%: a bus of 6 guests. Otherwise nobody' },
+    wom:      { side: 'self', loc: 'country', name: 'Village word of mouth', price: 5, n: 1, desc: '+1 guest today and +1 every day after' },
+    flyer:    { side: 'self', name: 'Flyers', price: 6, n: 2, desc: '+2 guests' },
+    blogger:  { side: 'self', name: 'Food blogger visit', price: 9, n: 4, chance: 0.5, star: 0.3, desc: '50%: +4 guests. Turn nobody away that day: 30% chance of +1 star' },
+    coupon:   { side: 'self', name: 'Opening coupon', price: 3, n: 3, off: 3, desc: '+3 guests, each pays $3 less' },
+    fake:     { side: 'rival', name: 'False advertisement', price: 3, desc: 'Does nothing. Makes them over-prepare' },
+    review:   { side: 'rival', name: 'Bad review', price: 6, n: 2, desc: 'They get 2 fewer guests' },
+    poach:    { side: 'rival', name: 'Poach a guest', price: 7, n: 1, desc: '1 of their guests comes to you instead' },
+    swamp:    { side: 'rival', name: 'Swamp them', price: 6, n: 3, desc: '+3 guests for them. Can they seat them all?' },
+    fakebook: { side: 'rival', name: 'Fake booking', price: 5, tables: 2, desc: '2 of their tables sit reserved for nobody today' },
+    corner:   { side: 'rival', name: 'Corner the rush supplier', price: 5, extra: 3, desc: 'Their rush food costs $3 more each today' }
+  },
+  // Service (all TBD). A shortage pops up only when tables or food run out. One action at a time.
+  //   patience: seconds the waiting group stays; opTime: seconds per rush food / table borrow
+  //   rush, borrow: price range [min, max]; borrowNo: chance the neighbour says no (no charge, still takes time)
+  //   villager: chance villagers bring food when food runs short (countryside only)
+  //   eventChance: chance of one event per day; food: give → foodGood chance +1 star, refuse → foodBad chance −1 star
+  service: { patience: 8, opTime: 2, rush: [7, 10], borrow: [5, 8], borrowNo: 0.3,
+    villager: 0.15, villagerGive: 2, eventChance: 0.6, foodGood: 0.2, foodBad: 0.5,
+    propose: 0.5, tip: 20, fightTables: 2, fightFood: 2, fewer: 3 },
+  // More than `share` of your tables empty at closing: `chance` of −1 star
+  emptyTables: { share: 0.5, chance: 0.5 },
+  // Between two days: `chance` a thief takes half your cash, at most `cap`
+  robbery: { chance: 0.05, cap: 30 },
   voucher: 3,
   // Loans (off for now): set enabled to true to bring back the Build-phase loan and the automatic loan when rent can't be paid
   loan: { enabled: false, amount: 30, repay: 40 },
@@ -50,169 +77,280 @@ function rand(seed, tag) {
   };
 }
 const d6 = (seed, tag) => 1 + Math.floor(rand(seed, tag)() * 6);
-// Hidden card placement: only the count per shop is public; the real/bluff split is locked with a checksum
-const adHash = (c, salt) => String(cyrb53(`${c.selfReal}|${c.selfBlank}|${c.rivalReal}|${c.rivalBlank}|${salt}`));
-const adCost = c => (c.selfReal + c.rivalReal) * CFG.ad.real + (c.selfBlank + c.rivalBlank) * CFG.ad.blank;
-
-function priceOf(sold, n) {
-  let cost = 0;
-  for (let i = 0; i < n; i++) {
-    const idx = sold + i;
-    cost += CFG.market.tiers.find(([upTo]) => idx < upTo)[1];
-  }
-  return cost;
-}
-function maxAffordable(sold, cash, cap) {
-  let n = 0;
-  while (n < cap && sold + n < CFG.market.stock && priceOf(sold, n + 1) <= cash) n++;
-  return n;
-}
+function shuffle(a, r) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 const intIn = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v) || 0)));
+const between = (r, [lo, hi]) => lo + Math.floor(r * (hi - lo + 1));
+
+// Hidden card placement: only the count per shop is public; which cards they are is locked with a checksum
+const adHash = (c, salt) => String(cyrb53(`${c.self.join(',')}|${c.rival.join(',')}|${salt}`));
+const adCost = c => [...c.self, ...c.rival].reduce((a, id) => a + CFG.ads[id].price, 0);
+
+// ---------- market helpers (the page uses these too) ----------
+function marketItems(seed, r) {
+  const M = CFG.market, R = rand(seed, `mk${r}`);
+  const nExp = r >= CFG.rounds ? M.stock : intIn(Math.round(M.stock / 2 + (R() * 2 - 1) * M.jitter), 0, M.stock);
+  return shuffle([...Array(nExp).fill('exp'), ...Array(M.stock - nExp).fill('reg')], R);
+}
+const regTomorrow = (seed, r, i) => rand(seed, `reg${r}:${i}`)() < CFG.market.reg.tomorrow;
+
+// ---------- service prices (the page shows them before you click) ----------
+function opPrice(S, s, ep, i, a) {
+  const C = CFG.service, R = rand(S.seed, `${a}${S.round}${s}:${ep}:${i}`);
+  if (a === 'rush') return between(R(), C.rush) + (S.script[s].cornered ? CFG.ads.corner.extra : 0);
+  return between(R(), C.borrow);
+}
+const borrowOk = (S, s, ep, i) => rand(S.seed, `bok${S.round}${s}:${ep}:${i}`)() >= CFG.service.borrowNo;
 
 function newPlayer() {
-  return { loc: null, cash: CFG.startCash, stars: CFG.startStars, tables: 0, tempTables: 0,
-    ingr: 0, loan: false, shadyFrom: null, bankrupt: false, held: 0, ledger: [], history: [] };
+  return { loc: null, cash: CFG.startCash, stars: CFG.startStars, tables: 0, ingr: 0, pending: 0, wom: 0,
+    loan: false, shadyFrom: null, bankrupt: false, held: 0, ledger: [], history: [] };
 }
 function money(p, label, amt) { p.cash = round2(p.cash + amt); p.ledger.push({ label, amt: round2(amt) }); }
 function note(p, label) { p.ledger.push({ label, amt: null }); }
 
-// Expected customers before the doors open (the page shows this as a forecast; the real number is rolled at service).
-// realCards = cards known to be real; unknownCards = cards of unknown type (at most all real)
-function expectedDemand(p, realCards = 0, unknownCards = 0) {
+// Expected customers before the doors open, for hints. selfCards = your own ad cards (known).
+function expectedDemand(p, selfCards = []) {
   const d = p.stars - CFG.startStars, per = CFG.rep.perStar;
   const rep = d > 0 ? d * per * CFG.rep.chance : -(-d) * per * CFG.rep.loseChance;
-  const ads = realCards * CFG.ad.customers;
-  return { base: CFG.baseDemand, rep, ads, total: CFG.baseDemand + rep + ads,
-    min: CFG.baseDemand - (d < 0 ? -d * per : 0),
-    max: CFG.baseDemand + (d > 0 ? d * per : 0) + (realCards + unknownCards) * CFG.ad.customers };
+  let ads = 0, adMin = 0, adMax = 0;
+  for (const id of selfCards) {
+    const A = CFG.ads[id];
+    if (id === 'subway') { ads += A.n - (A.n - A.low) * A.lowChance; adMin += A.low; adMax += A.n; }
+    else if (A.chance) { ads += A.n * A.chance; adMax += A.n; }
+    else { ads += A.n; adMin += A.n; adMax += A.n; }
+  }
+  const base = CFG.baseDemand + p.wom;
+  return { base, rep, ads, total: base + rep + ads,
+    min: base - (d < 0 ? -d * per : 0) + adMin, max: base + (d > 0 ? d * per : 0) + adMax };
 }
 function capacityOf(p) {
-  const t = Math.max(0, p.tables + p.tempTables - p.held), i = p.ingr;
+  const t = Math.max(0, p.tables - p.held), i = p.ingr;
   return { tables: t, ingr: i, cap: Math.min(t, i) };
 }
 
 function init(seed) {
-  const r = rand(seed, 'deck');
-  const deck = [...Array(3).fill('shady'), ...Array(3).fill('noshow'), ...Array(4).fill('quiet')];
-  for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; }
-  return { seed, round: 0, phase: 'pick', deck, players: { p1: newPlayer(), p2: newPlayer() },
-    event: null, market: null, commits: {}, reveals: {}, service: null, got: {}, result: null, feed: [] };
-}
-
-function richer(S, tag) {
-  const a = S.players.p1.cash, b = S.players.p2.cash;
-  if (a !== b) return a > b ? 'p1' : 'p2';
-  return rand(S.seed, tag)() < 0.5 ? 'p1' : 'p2';
+  const decks = {};
+  for (const s of SEATS) decks[s] = shuffle([...Array(3).fill('shady'), ...Array(3).fill('noshow'), ...Array(4).fill('quiet')], rand(seed, 'deck' + s));
+  return { seed, round: 0, phase: 'pick', decks, players: { p1: newPlayer(), p2: newPlayer() },
+    events: {}, morning: {}, market: null, shops: {}, commits: {}, reveals: {}, script: {}, service: null, got: {}, result: null };
 }
 
 function startRound(S) {
   S.round++;
   for (const s of SEATS) {
-    const p = S.players[s], L = CFG.loc[p.loc];
-    p.ledger = []; p.held = 0; p.tempTables = 0;
+    const p = S.players[s], L = CFG.loc[p.loc], m = { robbed: 0, arrived: p.pending };
+    p.ledger = []; p.held = 0;
+    if (S.round > 1) {
+      const R = rand(S.seed, `rob${S.round}${s}`);
+      if (R() < CFG.robbery.chance && p.cash > 0) {
+        m.robbed = Math.min(CFG.robbery.cap, round2(p.cash / 2));
+        money(p, 'Robbed overnight', -m.robbed);
+      }
+    }
     money(p, 'Rent', -L.rent);
-    p.ingr = L.free;
-    if (L.free) note(p, `Free farm produce ×${L.free}`);
+    p.ingr = p.pending; p.pending = 0;
+    if (m.arrived) note(p, `Regular delivery arrived ×${m.arrived}`);
     if (p.cash < 0 && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, 'Forced loan', CFG.loan.amount); }
     if (p.cash < 0) p.bankrupt = true;
+    S.morning[s] = m;
+    S.events[s] = { type: S.decks[s][S.round - 1], choice: null };
   }
   if (S.players.p1.bankrupt || S.players.p2.bankrupt) return finish(S, 'bankrupt');
-  const type = S.deck[S.round - 1];
-  if (type === 'shady') S.event = { type, seat: other(richer(S, `ev${S.round}`)), choice: null };
-  else if (type === 'noshow') S.event = { type, seat: richer(S, `ev${S.round}`), choice: null };
-  else S.event = { type, seat: null, choice: null };
-  S.phase = S.event.seat ? 'event' : 'invest';
+  S.phase = S.round > 1 ? 'morning' : 'invest';
 }
 
 function startMarket(S) {
-  const a = S.players.p1.cash, b = S.players.p2.cash;
-  const first = a !== b ? (a < b ? 'p1' : 'p2') : (rand(S.seed, `mk${S.round}`)() < 0.5 ? 'p1' : 'p2');
-  S.market = { sold: 0, turn: first, passed: { p1: false, p2: false }, step: 0, first, buys: { p1: 0, p2: 0 }, spent: { p1: 0, p2: 0 }, cells: [] };
+  S.market = { items: marketItems(S.seed, S.round), owner: {}, bought: {} };
   S.phase = 'market';
 }
 
-// Opening the doors: every random roll is recorded in `steps`, in the order the page plays them back.
-function runService(S) {
-  S.service = {};
-  for (const s of SEATS) {
-    const p = S.players[s], o = other(s), L = CFG.loc[p.loc];
-    const r = rand(S.seed, `svc${S.round}${s}`), d100 = () => 1 + Math.floor(r() * 100);
-    const steps = [], mine = S.reveals[s].self, theirs = S.reveals[o].rival;
-    const adsSelf = mine.real, adsRival = theirs.real;
-    const base = CFG.baseDemand, diff = p.stars - CFG.startStars;
-    steps.push({ k: 'base', n: base });
-    let repGain = 0, repLoss = 0;
-    if (diff > 0) for (let i = 0; i < diff * CFG.rep.perStar; i++) {
-      const roll = d100(), need = Math.round(CFG.rep.chance * 100), ok = roll <= need;
-      if (ok) repGain++; steps.push({ k: 'rep', roll, need, ok });
-    }
-    if (diff < 0) for (let i = 0; i < -diff * CFG.rep.perStar; i++) {
-      const roll = d100(), need = Math.round(CFG.rep.loseChance * 100), ok = roll <= need;
-      if (ok) repLoss++; steps.push({ k: 'lose', roll, need, ok });
-    }
-    // Flip every card in front of this shop in a shuffled order; each real card then rolls for its customers.
-    const cards = [];
-    for (const [from, c] of [['self', mine], ['rival', theirs]]) {
-      for (let i = 0; i < c.real; i++) cards.push({ from, real: true });
-      for (let i = 0; i < c.blank; i++) cards.push({ from, real: false });
-    }
-    for (let i = cards.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]]; }
-    let adSelfIn = 0, adRivalIn = 0;
-    cards.forEach((card, idx) => {
-      // A real card always brings its customers; a blank brings nobody.
-      const brings = card.real ? CFG.ad.customers : 0;
-      if (card.from === 'self') adSelfIn += brings; else adRivalIn += brings;
-      steps.push({ k: 'card', from: card.from, real: card.real, brings, n: idx + 1, of: cards.length });
-    });
-    const demand = Math.max(0, base + repGain - repLoss + adSelfIn + adRivalIn);
-    steps.push({ k: 'total', demand });
-    let noshow = null;
-    if (S.event && S.event.type === 'noshow' && S.event.seat === s) {
-      const roll = d6(S.seed, `noshow${S.round}`), arrive = roll >= 4;
-      noshow = { roll, arrive, choice: S.event.choice };
-      steps.push({ k: 'noshow', ...noshow });
-      if (S.event.choice === 'hold' && arrive) money(p, 'Reservation paid', CFG.noshow.pay);
-    }
-    const c = capacityOf(p);
-    const served = Math.min(demand, c.cap), turned = demand - served;
-    const limits = demand > c.cap ? ['tables', 'ingr'].filter(k => c[k] === c.cap) : [];
-    steps.push({ k: 'seat', served, cap: c.cap, limits });
-    if (turned) steps.push({ k: 'turned', n: turned });
-    const meals = served * L.price;
-    if (served) money(p, `Sales (${served} × $${L.price})`, meals);
-    steps.push({ k: 'sum', meals });
-    S.service[s] = { base, repGain, repLoss, adsSelf, adsRival, adSelfIn, adRivalIn, demand, ...c, served, turned,
-      limits, noshow, vouchers: 0, meals, cards: { mine, theirs }, steps };
+function shopFor(S, s) {
+  const p = S.players[s], R = rand(S.seed, `shop${S.round}${s}`), ids = Object.keys(CFG.ads), A = CFG.ads;
+  const pick = (list, n) => shuffle(list.slice(), R).slice(0, n);
+  return {
+    self: [...pick(ids.filter(i => A[i].side === 'self' && A[i].loc === p.loc), CFG.shop.loc),
+           ...pick(ids.filter(i => A[i].side === 'self' && !A[i].loc), CFG.shop.general)],
+    rival: pick(ids.filter(i => A[i].side === 'rival'), CFG.shop.rival)
+  };
+}
+
+// ---------- service ----------
+// Everything random about today's service is rolled here, before anyone acts, so both browsers see the same script.
+function prepService(S, s) {
+  const p = S.players[s], o = other(s), L = CFG.loc[p.loc], C = CFG.service, A = CFG.ads;
+  const r = rand(S.seed, `svc${S.round}${s}`), d100 = () => 1 + Math.floor(r() * 100);
+  const info = [], mine = S.reveals[s].self, theirs = S.reveals[o].rival;
+  const sc = { info, arrivals: [], mid: null, fewer: 0, fakeHeld: 0, cornered: false, stallFood: 0,
+    blogger: false, rolls: { food: r(), blogger: r(), empty: r(), propose: r() } };
+  // The one event of the day (or none)
+  let ev = null;
+  if (r() < C.eventChance) {
+    const pool = ['food', 'fight', 'propose', p.loc === 'city' ? 'protest' : 'weather'];
+    ev = pool[Math.floor(r() * pool.length)];
   }
-  const needV = SEATS.some(s => S.service[s].turned > 0 && S.players[s].cash >= CFG.voucher);
-  if (needV) S.phase = 'voucher'; else review(S);
+  sc.event = ev;
+  // Booking from the morning event
+  const e = S.events[s];
+  if (e && e.type === 'noshow') {
+    const roll = d6(S.seed, `noshow${S.round}${s}`), arrive = roll >= 4;
+    sc.noshow = { roll, arrive, choice: e.choice };
+    info.push({ k: 'noshow', ...sc.noshow });
+  }
+  if (p.shadyFrom !== null && S.round > p.shadyFrom) {
+    const roll = d6(S.seed, `shady${s}${S.round}`);
+    sc.inspection = { roll, caught: roll === 1 };
+    info.push({ k: 'inspect', ...sc.inspection });
+  }
+  if (ev === 'weather' || ev === 'protest') { sc.fewer = C.fewer; info.push({ k: 'event', ev, n: C.fewer }); }
+  // Word of mouth from stars
+  const diff = p.stars - CFG.startStars;
+  let repGain = 0, repLoss = 0;
+  if (diff > 0) for (let i = 0; i < diff * CFG.rep.perStar; i++) {
+    const roll = d100(), need = Math.round(CFG.rep.chance * 100), ok = roll <= need;
+    if (ok) repGain++; info.push({ k: 'rep', roll, need, ok });
+  }
+  if (diff < 0) for (let i = 0; i < -diff * CFG.rep.perStar; i++) {
+    const roll = d100(), need = Math.round(CFG.rep.loseChance * 100), ok = roll <= need;
+    if (ok) repLoss++; info.push({ k: 'lose', roll, need, ok });
+  }
+  // Flip every card in front of this shop, in a shuffled order
+  const cards = shuffle([...mine.map(id => ({ id, from: 'self' })), ...theirs.map(id => ({ id, from: 'rival' }))], r);
+  let minus = 0;
+  const groups = [];
+  for (const c of cards) {
+    const a = A[c.id], f = { k: 'card', id: c.id, from: c.from, n: 0 };
+    switch (c.id) {
+      case 'flyer': case 'wom': case 'swamp': f.n = a.n; groups.push({ n: a.n, price: L.price, src: c.id }); break;
+      case 'coupon': case 'lunch': f.n = a.n; groups.push({ n: a.n, price: L.price - a.off, src: c.id }); break;
+      case 'delivery': f.n = a.n; groups.push({ n: a.n, price: L.price, src: c.id, noTable: true }); break;
+      case 'subway': f.n = r() < a.lowChance ? a.low : a.n; groups.push({ n: f.n, price: L.price, src: c.id }); break;
+      case 'bus': f.n = r() < a.chance ? a.n : 0; if (f.n) groups.push({ n: f.n, price: L.price, src: c.id }); break;
+      case 'blogger': f.n = r() < a.chance ? a.n : 0; sc.blogger = f.n > 0; if (f.n) groups.push({ n: f.n, price: L.price, src: c.id }); break;
+      case 'stall': f.n = a.n; f.food = a.food; sc.stallFood += a.food; groups.push({ n: a.n, price: L.price, src: c.id }); break;
+      case 'review': f.n = -a.n; minus += a.n; break;
+      case 'poach': f.n = -a.n; minus += a.n; break;
+      case 'fakebook': f.tables = a.tables; sc.fakeHeld += a.tables; break;
+      case 'corner': f.extra = a.extra; sc.cornered = true; break;
+    }
+    info.push(f);
+  }
+  if (S.reveals[s].rival.includes('poach')) { info.push({ k: 'poached', n: A.poach.n }); groups.push({ n: A.poach.n, price: L.price, src: 'poached' }); }
+  const base = Math.max(0, CFG.baseDemand + repGain - repLoss - sc.fewer - minus);
+  sc.arrivals = [{ n: base, price: L.price, src: 'regulars' }];
+  if (p.wom) sc.arrivals.push({ n: p.wom, price: L.price, src: 'wom-old' });
+  sc.arrivals.push(...groups);
+  sc.repGain = repGain; sc.repLoss = repLoss; sc.base = base;
+  // Mid-service events happen after the regulars are seated
+  if (ev === 'food' || ev === 'fight' || ev === 'propose') sc.mid = ev;
+  return sc;
+}
+
+// Runs the service with the player's choices. `ops` = [{ep, a:'rush'|'borrow'} | {a:'food', give}].
+// `closed` = how many shortage episodes are finished; at the first open one (or an unanswered food event) it stops and
+// returns `pending`, so the page can show the live situation. The engine calls it with closed = Infinity.
+function serviceRun(S, s, ops = [], closed = Infinity) {
+  const p = S.players[s], sc = S.script[s], C = CFG.service;
+  const st = { cash: p.cash, tables: Math.max(0, p.tables - p.held - sc.fakeHeld), ingr: p.ingr + sc.stallFood, usedT: 0,
+    served: 0, turned: 0, sales: 0, rush: { n: 0, cost: 0 }, borrow: { n: 0, cost: 0, no: 0 }, villagers: 0,
+    lostTables: 0, food: null, fight: false, tip: 0, out: [], pending: null, demand: 0, deliv: 0 };
+  // Every step carries a snapshot of the shop so the page can draw it (display only)
+  const push = o => st.out.push({ ...o, snap: { tables: st.tables, usedT: st.usedT, ingr: st.ingr, served: st.served, turned: st.turned, deliv: st.deliv } });
+  const maxOps = Math.floor(C.patience / C.opTime);
+  let ep = -1;
+  const can = g => Math.max(0, Math.min(st.ingr, g.noTable ? Infinity : st.tables - st.usedT));
+  const arrive = g => {
+    st.demand += g.n;
+    if (g.n > 0 && can(g) < g.n) {
+      ep++;
+      const out = { k: 'short', ep, need: g.n, n: 0 };
+      if (p.loc === 'country' && st.ingr < g.n && rand(S.seed, `vil${S.round}${s}:${ep}`)() < C.villager) {
+        st.ingr += C.villagerGive; st.villagers += C.villagerGive; out.villagers = C.villagerGive;
+      }
+      const mine = ops.filter(o => o.ep === ep && (o.a === 'rush' || o.a === 'borrow')).slice(0, maxOps);
+      mine.forEach((o, i) => {
+        const price = opPrice(S, s, ep, i, o.a);
+        if (o.a === 'rush') { if (st.cash < price) return; st.cash -= price; st.ingr++; st.rush.n++; st.rush.cost += price; out.n++; }
+        else if (!borrowOk(S, s, ep, i)) st.borrow.no++;
+        else { if (st.cash < price) return; st.cash -= price; st.tables++; st.borrow.n++; st.borrow.cost += price; out.n++; }
+      });
+      if (ep >= closed) { st.pending = { kind: 'short', ep, group: g, need: g.n, can: can(g), tries: mine.length, maxOps,
+        shortOn: st.ingr < g.n ? (g.noTable || st.tables - st.usedT >= g.n ? ['ingr'] : ['ingr', 'tables']) : ['tables'], villagers: out.villagers || 0 }; return false; }
+      push(out);
+    }
+    const seated = Math.min(g.n, can(g));
+    st.ingr -= seated; if (!g.noTable) st.usedT += seated; else st.deliv += seated;
+    st.served += seated; st.sales += seated * g.price; st.turned += g.n - seated;
+    push({ k: 'arrive', src: g.src, n: g.n, seated, away: g.n - seated, noTable: !!g.noTable });
+    return true;
+  };
+  for (const f of sc.info) push(f);
+  if (!arrive(sc.arrivals[0])) return st;
+  if (sc.mid === 'food') {
+    const op = ops.find(o => o.a === 'food');
+    if (!op && closed !== Infinity) { st.pending = { kind: 'food' }; return st; }
+    const give = !!(op && op.give) && st.ingr >= 1;
+    if (give) st.ingr--;
+    st.food = give ? 'give' : 'refuse';
+    push({ k: 'food', give });
+  } else if (sc.mid === 'fight') {
+    const lost = Math.min(C.fightTables, p.tables);
+    st.tables = Math.max(0, st.tables - lost); st.lostTables = lost; st.ingr = Math.max(0, st.ingr - C.fightFood); st.fight = true;
+    push({ k: 'fight', tables: lost, food: C.fightFood });
+  } else if (sc.mid === 'propose') {
+    const ok = sc.rolls.propose < C.propose;
+    if (ok) { st.tip = C.tip; st.sales += C.tip; }
+    push({ k: 'propose', ok, tip: C.tip });
+  }
+  for (const g of sc.arrivals.slice(1)) if (!arrive(g)) return st;
+  if (sc.noshow && sc.noshow.arrive && sc.noshow.choice === 'hold') push({ k: 'booking', pay: CFG.noshow.pay });
+  st.empty = Math.max(0, st.tables - st.usedT);
+  push({ k: 'close', served: st.served, turned: st.turned, empty: st.empty, tables: st.tables });
+  return st;
+}
+
+function finishService(S, s, ops) {
+  const p = S.players[s], sc = S.script[s], L = CFG.loc[p.loc];
+  const v = serviceRun(S, s, Array.isArray(ops) ? ops.slice(0, 200) : []);
+  if (v.rush.n) money(p, `Rush food ×${v.rush.n}`, -v.rush.cost);
+  if (v.borrow.n) money(p, `Borrowed tables ×${v.borrow.n}`, -v.borrow.cost);
+  if (v.villagers) note(p, `Villagers brought food ×${v.villagers}`);
+  if (v.served) money(p, `Sales (${v.served} guests)`, v.sales - v.tip);
+  if (v.tip) money(p, 'Proposal tip', v.tip);
+  if (sc.noshow && sc.noshow.arrive && sc.noshow.choice === 'hold') money(p, 'Reservation paid', CFG.noshow.pay);
+  if (sc.inspection && sc.inspection.caught) { money(p, 'Inspector fine', -CFG.shady.fine); }
+  if (v.lostTables) { p.tables -= v.lostTables; note(p, `Fight broke ${v.lostTables} tables`); }
+  if (S.reveals[s].self.includes('wom')) p.wom += CFG.ads.wom.n;
+  p.ingr = v.ingr;
+  return { ...v, base: sc.base, repGain: sc.repGain, repLoss: sc.repLoss, noshow: sc.noshow || null, inspection: sc.inspection || null,
+    event: sc.event, vouchers: 0, ops: (ops || []).length };
 }
 
 function review(S) {
+  const ES = CFG.emptyTables, C = CFG.service;
   for (const s of SEATS) {
-    const p = S.players[s], v = S.service[s];
+    const p = S.players[s], v = S.service[s], sc = S.script[s];
     const unv = v.turned - v.vouchers;
     let delta = v.turned === 0 ? 1 : unv === 0 ? 0 : unv <= 3 ? -1 : -2;
     const why = [];
     if (v.turned === 0) why.push('served everyone +1');
     else if (unv > 0) why.push(`turned away ${unv} ${unv <= 3 ? '−1' : '−2'}`);
     if (v.noshow && v.noshow.choice === 'release' && v.noshow.arrive) { delta -= 1; why.push('reservation had no seat −1'); }
-    let inspection = null;
-    if (p.shadyFrom !== null && S.round > p.shadyFrom) {
-      const roll = d6(S.seed, `shady${s}${S.round}`);
-      inspection = { roll, caught: roll === 1 };
-      if (roll === 1) { money(p, 'Inspector fine', -CFG.shady.fine); delta -= 1; why.push('inspector −1'); p.shadyFrom = null; }
-    }
-    delta = Math.max(-2, delta);
+    if (v.inspection && v.inspection.caught) { delta -= 1; why.push('inspector −1'); p.shadyFrom = null; }
+    if (v.food === 'give' && sc.rolls.food < C.foodGood) { delta += 1; why.push('kindness paid off +1'); }
+    if (v.food === 'refuse' && sc.rolls.food < C.foodBad) { delta -= 1; why.push('word got out you said no −1'); }
+    if (sc.blogger && v.turned === 0 && sc.rolls.blogger < CFG.ads.blogger.star) { delta += 1; why.push('blogger loved it +1'); }
+    v.emptyHit = v.tables > 0 && v.empty > v.tables * ES.share && sc.rolls.empty < ES.chance;
+    if (v.emptyHit) { delta -= 1; why.push(`${v.empty} empty tables −1`); }
+    delta = Math.max(-2, Math.min(2, delta));
     const before = p.stars;
     p.stars = Math.max(1, Math.min(5, p.stars + delta));
-    const spoiled = Math.max(0, p.ingr - v.served);
-    if (spoiled) note(p, `${spoiled} ingredients spoiled`);
+    const spoiled = Math.max(0, p.ingr);
+    if (spoiled) note(p, `${spoiled} food spoiled`);
     p.ingr = 0;
-    v.starsBefore = before; v.starsAfter = p.stars; v.why = why; v.spoiled = spoiled; v.inspection = inspection;
+    v.starsBefore = before; v.starsAfter = p.stars; v.why = why; v.spoiled = spoiled;
     const income = round2(p.ledger.filter(x => x.amt > 0).reduce((a, x) => a + x.amt, 0));
     const spend = round2(p.ledger.filter(x => x.amt < 0).reduce((a, x) => a + x.amt, 0));
-    p.history.push({ round: S.round, demand: v.demand, cap: v.cap, served: v.served, turned: v.turned,
+    p.history.push({ round: S.round, demand: v.demand, cap: v.served + v.empty, served: v.served, turned: v.turned,
       spoiled, income, spend, cash: p.cash, stars: p.stars, ledger: p.ledger.slice() });
   }
   S.phase = 'report';
@@ -240,18 +378,25 @@ function expected(S) {
   const r = S.round, need = { p1: null, p2: null };
   switch (S.phase) {
     case 'pick': need.p1 = need.p2 = '0:pick'; break;
-    case 'event': need[S.event.seat] = `${r}:event`; break;
+    case 'morning': need.p1 = need.p2 = `${r}:morning`; break;
     case 'invest': need.p1 = need.p2 = `${r}:invest`; break;
-    case 'market': need[S.market.turn] = `${r}:market:${S.market.step}`; break;
+    case 'market': need.p1 = need.p2 = `${r}:market`; break;
     case 'commit': need.p1 = need.p2 = `${r}:commit`; break;
-    case 'respond': need.p1 = need.p2 = `${r}:respond`; break;
     case 'reveal': need.p1 = need.p2 = `${r}:reveal`; break;
+    case 'service': need.p1 = need.p2 = `${r}:service`; break;
     case 'voucher':
       for (const s of SEATS) if (S.service[s].turned > 0 && S.players[s].cash >= CFG.voucher) need[s] = `${r}:voucher`;
       break;
     case 'report': need.p1 = need.p2 = `${r}:next`; break;
   }
   return need;
+}
+
+function validCards(list, allowed) {
+  if (!Array.isArray(list)) return null;
+  const out = [];
+  for (const id of list) { if (!allowed.includes(id) || out.includes(id)) return null; out.push(id); }
+  return out;
 }
 
 function apply(S, got) {
@@ -265,20 +410,17 @@ function apply(S, got) {
       }
       startRound(S); break;
     }
-    case 'event': {
-      const s = S.event.seat, p = S.players[s], a = got[s];
-      if (S.event.type === 'shady') {
-        S.event.choice = a.choice === 'accept' ? 'accept' : 'decline';
-        if (S.event.choice === 'accept') { money(p, 'Shady deal', CFG.shady.cash); p.shadyFrom = r; }
-      } else {
-        S.event.choice = a.choice === 'hold' ? 'hold' : 'release';
-        if (S.event.choice === 'hold') p.held = CFG.noshow.tables;
-      }
-      S.phase = 'invest'; break;
-    }
+    case 'morning': S.phase = 'invest'; break;
     case 'invest': {
       for (const s of SEATS) {
-        const p = S.players[s], a = got[s];
+        const p = S.players[s], a = got[s], e = S.events[s];
+        if (e.type === 'shady') {
+          e.choice = a.choice === 'accept' ? 'accept' : 'decline';
+          if (e.choice === 'accept') { money(p, 'Shady deal', CFG.shady.cash); p.shadyFrom = r; }
+        } else if (e.type === 'noshow') {
+          e.choice = a.choice === 'hold' ? 'hold' : 'release';
+          if (e.choice === 'hold') p.held = CFG.noshow.tables;
+        }
         if (a.loan && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, 'Loan', CFG.loan.amount); }
         const room = CFG.maxTables - p.tables;
         const t = Math.min(intIn(a.tables, 0, room), Math.floor(Math.max(0, p.cash) / CFG.tableCost));
@@ -287,55 +429,57 @@ function apply(S, got) {
       startMarket(S); break;
     }
     case 'market': {
-      const m = S.market, s = m.turn, p = S.players[s];
-      const n = Math.min(intIn(got[s].n, 0, CFG.market.maxPerTurn), maxAffordable(m.sold, p.cash, CFG.market.maxPerTurn));
-      if (n === 0) m.passed[s] = true;
-      else {
-        const cost = priceOf(m.sold, n);
-        m.sold += n; p.ingr += n; p.cash -= cost; m.buys[s] += n; m.spent[s] += cost;
-        for (let i = 0; i < n; i++) m.cells.push(s);
+      // Who got which item was settled live (first click wins). If both logs somehow claim one item, P1 keeps it.
+      const m = S.market, M = CFG.market;
+      for (const s of SEATS) {
+        const p = S.players[s], b = { exp: 0, today: 0, tomorrow: 0, spent: 0, items: [] };
+        for (const raw of Array.isArray(got[s].buys) ? got[s].buys : []) {
+          const i = intIn(raw, -1, M.stock - 1);
+          if (i < 0 || m.owner[i]) continue;
+          const type = m.items[i], price = M[type].price;
+          if (p.cash < price) continue;
+          m.owner[i] = s; p.cash = round2(p.cash - price); b.spent += price; b.items.push(i);
+          if (type === 'exp') { b.exp++; p.ingr++; }
+          else if (r < CFG.rounds && regTomorrow(S.seed, r, i)) { b.tomorrow++; p.pending++; }
+          else { b.today++; p.ingr++; }
+        }
+        if (b.exp) p.ledger.push({ label: `Express food ×${b.exp}`, amt: -b.exp * M.exp.price });
+        if (b.today + b.tomorrow) p.ledger.push({ label: `Regular food ×${b.today + b.tomorrow}${b.tomorrow ? ` (${b.tomorrow} tomorrow)` : ''}`, amt: -(b.today + b.tomorrow) * M.reg.price });
+        m.bought[s] = b;
       }
-      if (m.sold >= CFG.market.stock) m.passed.p1 = m.passed.p2 = true;
-      m.step++;
-      const o = other(s);
-      if (m.passed.p1 && m.passed.p2) {
-        for (const q of SEATS) if (m.buys[q]) S.players[q].ledger.push({ label: `Ingredients ×${m.buys[q]}`, amt: -m.spent[q] });
-        S.phase = 'commit';
-      } else m.turn = !m.passed[o] ? o : s;
-      break;
+      for (const s of SEATS) S.shops[s] = shopFor(S, s);
+      S.phase = 'commit'; break;
     }
     case 'commit': {
       S.commits = {}; S.reveals = {};
       for (const s of SEATS) {
-        const a = got[s], m = CFG.ad.maxPerShop;
-        S.commits[s] = { h: String(a.h), nSelf: intIn(a.nSelf, 0, m), nRival: intIn(a.nRival, 0, m) };
-      }
-      S.phase = 'respond'; break;
-    }
-    case 'respond': {
-      const R = CFG.respond;
-      for (const s of SEATS) {
-        const p = S.players[s], a = got[s];
-        const tt = Math.min(intIn(a.tempTables, 0, R.tempTableMax), Math.floor(Math.max(0, p.cash) / R.tempTable));
-        if (tt) { money(p, `Pop-up tables ×${tt}`, -tt * R.tempTable); p.tempTables = tt; }
-        const rush = Math.min(intIn(a.rush, 0, R.rushIngrMax), Math.floor(Math.max(0, p.cash) / R.rushIngr));
-        if (rush) { money(p, `Rush order ×${rush}`, -rush * R.rushIngr); p.ingr += rush; }
+        const a = got[s], sh = S.shops[s];
+        S.commits[s] = { h: String(a.h), nSelf: intIn(a.nSelf, 0, sh.self.length), nRival: intIn(a.nRival, 0, sh.rival.length) };
       }
       S.phase = 'reveal'; break;
     }
     case 'reveal': {
       for (const s of SEATS) {
-        const p = S.players[s], a = got[s], cm = S.commits[s], m = CFG.ad.maxPerShop;
-        const c = { selfReal: intIn(a.selfReal, 0, m), selfBlank: intIn(a.selfBlank, 0, m),
-          rivalReal: intIn(a.rivalReal, 0, m), rivalBlank: intIn(a.rivalBlank, 0, m) };
-        let ok = adHash(c, a.salt) === cm.h && c.selfReal + c.selfBlank === cm.nSelf && c.rivalReal + c.rivalBlank === cm.nRival;
-        // A failed check turns every card into a blank (the counts everyone saw stay the same).
-        if (!ok) { c.selfReal = 0; c.selfBlank = cm.nSelf; c.rivalReal = 0; c.rivalBlank = cm.nRival; }
+        const p = S.players[s], a = got[s], cm = S.commits[s], sh = S.shops[s];
+        let c = { self: validCards(a.self, sh.self), rival: validCards(a.rival, sh.rival) };
+        let ok = !!(c.self && c.rival) && adHash(c, a.salt) === cm.h && c.self.length === cm.nSelf && c.rival.length === cm.nRival;
+        // A failed check makes every card do nothing (and cost nothing)
+        if (!ok) c = { self: [], rival: [] };
+        while (adCost(c) > Math.max(0, p.cash)) (c.rival.length ? c.rival : c.self).pop();
         const cost = adCost(c);
-        if (cost) money(p, `Ad cards (${c.selfReal + c.rivalReal} real, ${c.selfBlank + c.rivalBlank} bluff)`, -cost);
-        S.reveals[s] = { self: { real: c.selfReal, blank: c.selfBlank }, rival: { real: c.rivalReal, blank: c.rivalBlank }, ok };
+        if (cost) money(p, `Ad cards ×${c.self.length + c.rival.length}`, -cost);
+        S.reveals[s] = { ...c, ok };
       }
-      runService(S); break;
+      for (const s of SEATS) S.script[s] = prepService(S, s);
+      S.service = null;
+      S.phase = 'service'; break;
+    }
+    case 'service': {
+      S.service = {};
+      for (const s of SEATS) S.service[s] = finishService(S, s, got[s].ops);
+      const needV = SEATS.some(s => S.service[s].turned > 0 && S.players[s].cash >= CFG.voucher);
+      if (needV) S.phase = 'voucher'; else review(S);
+      break;
     }
     case 'voucher': {
       for (const s of SEATS) {
@@ -347,7 +491,7 @@ function apply(S, got) {
       review(S); break;
     }
     case 'report': {
-      if (S.round >= CFG.rounds) finish(S, 'done'); else startRound(S);
+      if (r >= CFG.rounds) finish(S, 'done'); else startRound(S);
       break;
     }
   }
@@ -372,4 +516,5 @@ function simulate(seed, logs) {
   return S;
 }
 
-if (typeof module !== 'undefined') module.exports = { CFG, simulate, adHash, adCost, priceOf, maxAffordable, capacityOf, expectedDemand, expected };
+if (typeof module !== 'undefined') module.exports = { CFG, simulate, adHash, adCost, capacityOf, expectedDemand, expected,
+  marketItems, regTomorrow, serviceRun, opPrice, borrowOk };

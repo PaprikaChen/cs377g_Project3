@@ -8,6 +8,7 @@ window.__RR_FAKE_FB = () => {
     async set(p, d) { await new Promise(r => setTimeout(r, 20)); localStorage.setItem(key(p), JSON.stringify(d)); fire(); },
     watchDoc(p, next) { const f = () => { const d = read(p); next({ exists: !!d, data: d, fromCache: false }); }; L.add(f); setTimeout(f, 0); return () => L.delete(f); },
     watchCol(p, next) { const f = () => { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(key(p) + '/') && !k.slice(key(p).length + 1).includes('/')) out.push({ id: k.slice(key(p).length + 1), data: JSON.parse(localStorage.getItem(k)) }); } next(out); }; L.add(f); setTimeout(f, 0); return () => L.delete(f); },
+    async tx(p, fn) { await new Promise(r => setTimeout(r, 15)); const n = fn(read(p)); if (n) { localStorage.setItem(key(p), JSON.stringify(n)); fire(); } return n; },
     async claim(p, d) { const c = read(p); if (c && c.uid && c.uid !== d.uid) throw { code: 'seat-taken' }; await fb.set(p, d); }
   };
   return fb;
