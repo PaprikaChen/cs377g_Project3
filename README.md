@@ -84,6 +84,34 @@ Based on our in-group playtest notes (dominant strategies: buy everything early 
 
 All new numbers are placeholders (marked TBD in `CFG`) until we playtest them.
 
+### Screenshots from testing (local test mode, dark theme)
+
+**Picking a shop**: pictures plus pros and cons.
+
+<img src="docs/screenshots/pick-shop.jpg" width="560" alt="Shop pick screen with a barn for the countryside and a skyline for the city">
+
+**Live market shelf**: Express (bolt) vs Regular (box). Items you bought have your colour ring and a sun (today) or moon (tomorrow) badge; the faded slot with a dot was taken by the rival.
+
+<img src="docs/screenshots/market-shelf.jpg" width="560" alt="Market shelf with express and regular items">
+
+**Service, before opening**: your tables and the food on the counter.
+
+<img src="docs/screenshots/service-ready.jpg" width="560" alt="Empty restaurant scene before the doors open">
+
+**A shortage**: guests queue at the door; rush food, borrow a table, or let them go. Here the villagers also brought food. Flipped ad cards are the chips on top.
+
+<img src="docs/screenshots/service-shortage.jpg" width="560" alt="Guests waiting at the door with the shortage popup">
+
+**Rush order on the way**: patience bar and delivery bar.
+
+<img src="docs/screenshots/service-rush.jpg" width="560" alt="Shortage popup with a rush delivery in progress">
+
+**Seated guests and an event**: seated guests sit at tables, turned-away guests stand outside in red, and a villager asks for free food.
+
+<img src="docs/screenshots/service-food-event.jpg" width="560" alt="Guests seated at tables, two turned away, and a free-food request">
+
+These were taken mid-development: a few details have changed since (for example the villagers' basket now sits by the counter instead of covering the food shelf, and ad cards show short picture formulas instead of full sentences).
+
 **Still to do**: the visuals and the writing are not intuitive enough yet. Both need a lot more revision and polish (clearer icons, less text, better feedback when things happen, checking phone layouts), and the numbers need balancing after real playtests.
 
 ## Ideas to try later (v2 alternatives)
