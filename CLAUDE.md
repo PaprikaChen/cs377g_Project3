@@ -65,7 +65,7 @@ python3 tests/online.test.py http://localhost:8765/index.html
 
 ## Publishing
 
-Push to `main`; GitHub Pages updates in about a minute. **Whenever `style.css`, `engine.js`, `art.js`, `app.js` or `firebase-config.js` changes, bump the `?v=...` after those files in `index.html`** (e.g. to the current short commit hash), or browsers may keep cached old files. Write short commit messages in English describing what changed.
+Push to `main`; GitHub Pages updates in about a minute. Other branches deploy to `/preview/<branch>/` on the same site (see `.github/workflows/pages.yml`); the Pages source is the `gh-pages` branch, which only the workflow writes to. **Whenever `style.css`, `engine.js`, `art.js`, `app.js` or `firebase-config.js` changes, bump the `?v=...` after those files in `index.html`** (e.g. to the current short commit hash), or browsers may keep cached old files. Write short commit messages in English describing what changed.
 
 ## Related docs
 

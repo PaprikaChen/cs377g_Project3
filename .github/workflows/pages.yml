@@ -1,0 +1,72 @@
+# Publishes the site to the gh-pages branch:
+#   main            -> https://paprikachen.github.io/cs377g_Project3/
+#   any other branch -> https://paprikachen.github.io/cs377g_Project3/preview/<branch>/
+# Deleting a branch removes its preview.
+# GitHub Pages must be set to "Deploy from a branch" -> gh-pages, / (root).
+name: Pages
+
+on:
+  push:
+    branches: ['**']
+  delete:
+
+permissions:
+  contents: write
+
+# One deploy at a time so pushes to gh-pages never race each other.
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out destination
+        id: dest
+        run: |
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            echo "dir=" >> "$GITHUB_OUTPUT"
+          else
+            slug=$(echo "$GITHUB_REF_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+|-+$//g')
+            echo "dir=preview/$slug" >> "$GITHUB_OUTPUT"
+            echo "Preview: https://paprikachen.github.io/cs377g_Project3/preview/$slug/" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Stage site files
+        run: |
+          mkdir _site
+          rsync -a --exclude .git --exclude .github --exclude tests --exclude docs --exclude _site ./ _site/
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./_site
+          destination_dir: ${{ steps.dest.outputs.dir }}
+          # Keep the other previews when main deploys to the root.
+          keep_files: ${{ steps.dest.outputs.dir == '' }}
+          commit_message: "Deploy ${{ github.ref_name }}"
+
+  cleanup:
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+      - name: Remove preview
+        env:
+          BRANCH: ${{ github.event.ref }}
+        run: |
+          slug=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+|-+$//g')
+          if [ -d "preview/$slug" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+            git rm -rq "preview/$slug"
+            git commit -m "Remove preview for $BRANCH"
+            git push
+          fi

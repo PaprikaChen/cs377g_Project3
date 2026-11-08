@@ -45,6 +45,8 @@ To test online play by yourself: one browser can only be one player (the anonymo
 
 Pushing to `main` updates GitHub Pages in about a minute. GitHub caches pages for a few minutes; if you still see the old version, hard-refresh (`Ctrl/Cmd + Shift + R`) or add `?v=2` to the URL.
 
+**Branch previews.** `.github/workflows/pages.yml` deploys every branch to the `gh-pages` branch: `main` goes to the site root, and any other branch goes to `https://paprikachen.github.io/cs377g_Project3/preview/<branch>/` (lowercase, with `/` and other odd characters turned into `-`). The link also appears in the run summary under the repo's **Actions** tab. Deleting the branch removes its preview. Both players in a game must use the same URL, since a preview may run different rules than `main`. GitHub Pages must be set to **Deploy from a branch → `gh-pages` / (root)** (Settings → Pages).
+
 ## 4. How to play
 
 1. Player 1 enters a name, clicks **Create room**, and sends the link and the 4-letter room code to player 2.
