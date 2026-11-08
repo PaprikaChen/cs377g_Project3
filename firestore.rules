@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Games: any signed-in player can read; only the host can create; never changed or deleted
+    match /games/{code} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.host == request.auth.uid;
+      allow update, delete: if false;
+
+      // Seats: only the host can create p1; anyone can take p2 (first come, first served)
+      // After that, only the seated player can update their own action log
+      match /seats/{seat} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && seat in ['p1', 'p2']
+                      && request.resource.data.uid == request.auth.uid
+                      && (seat != 'p1'
+                          || get(/databases/$(database)/documents/games/$(code)).data.host == request.auth.uid);
+        allow update: if request.auth != null
+                      && resource.data.uid == request.auth.uid
+                      && request.resource.data.uid == request.auth.uid;
+        allow delete: if false;
+      }
+
+      // Live market for each day: any signed-in player can read; players claim items inside a transaction
+      match /market/{day} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if false;
+      }
+    }
+
+    // Each player's hidden card split; only that player can read or write it
+    match /users/{uid}/{rest=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
