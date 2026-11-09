@@ -410,6 +410,9 @@ function progressHTML(phase) {
   return `<ol class="progress" aria-label="Step ${i + 1} of 5: ${STEPS[i] ? STEPS[i][1] : ''}">${STEPS.map(([, n], j) =>
     `${j ? '<li class="sep" aria-hidden="true"></li>' : ''}<li class="${j === i ? 'on' : j < i ? 'done' : ''}"><span class="pd"></span>${n}</li>`).join('')}</ol>`;
 }
+// Light / dark theme: follows the computer's setting until the player picks one with the header button (remembered on this device)
+const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+{ const t = lsGet('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; }
 function renderBar() {
   const S = app.S, bar = $('#bar');
   let mid = '';
@@ -421,6 +424,7 @@ function renderBar() {
   let tools = '';
   if (app.mode === 'online') tools = `<span>Room <b style="color:var(--ink);letter-spacing:.06em">${esc(app.code)}</b> · ${seatTag(app.me)}</span><button class="btn" data-act="copy" aria-label="Copy room code">${ART.icon('copy', 14)}</button>`;
   if (app.mode === 'local') tools = `<span>Practice</span>${['p1', 'p2'].map(s => `<button class="btn" data-act="view" data-seat="${s}" aria-pressed="${app.view === s}" style="${app.view === s ? 'border-color:var(--ink)' : ''}">Player ${s === 'p1' ? 1 : 2}${S && S.waiting[s] ? ' •' : ''}</button>`).join('')}`;
+  tools += `<button class="btn" data-act="theme" aria-label="Switch to ${isDark() ? 'light' : 'dark'} theme">${isDark() ? 'Light' : 'Dark'} mode</button>`;
   tools += '<button class="btn" data-act="howto">How to play</button>';
   if (app.mode) tools += `<button class="btn" data-act="leave">${app.mode === 'local' ? 'Quit' : 'Leave'}</button>`;
   bar.innerHTML = `<img class="logo" src="${IMG.logo}" alt="Restaurant Rivals"><div class="mid">${mid}</div><div class="tools">${tools}</div>`;
@@ -1128,6 +1132,7 @@ document.addEventListener('click', e => {
     case 'leave': app.howto = null; return leave(false);
     case 'view': app.view = b.dataset.seat; if (S && PRIVATE_PHASES.includes(S.phase)) app.cover = app.view; return render();
     case 'cover-ok': app.cover = null; return render();
+    case 'theme': { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; lsSet('theme', t); return render(); }
     case 'intro': app.intro++; return render();
     case 'introskip': app.intro = INTRO.length; return render();
     case 'howto': {
