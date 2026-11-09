@@ -399,3 +399,19 @@ input[type=text]{font:inherit;font-size:16px;padding:12px 14px;border-radius:12p
 
 /* toast */
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--surface);padding:12px 18px;border-radius:12px;font-size:14px;font-weight:600;max-width:calc(100% - 32px);z-index:30;box-shadow:0 16px 32px -12px rgba(9,9,11,.5)}
+
+/* one-screen practice: the page takes the active player's colour (as before the redesign) */
+body[data-view="p1"]{--bg:#EEF1FB} body[data-view="p2"]{--bg:#FBEFF4}
+body{transition:background-color .35s ease}
+@media (prefers-reduced-motion:reduce){body{transition:none}}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) body[data-view="p1"]{--bg:#0E1222} :root:not([data-theme="light"]) body[data-view="p2"]{--bg:#1C0D14}}
+:root[data-theme="dark"] body[data-view="p1"]{--bg:#0E1222} :root[data-theme="dark"] body[data-view="p2"]{--bg:#1C0D14}
+
+/* "Every day so far" table (recap + final results) */
+.daylog summary{cursor:pointer;display:flex;gap:10px;align-items:baseline;list-style:none}
+.daylog summary::-webkit-details-marker{display:none}
+.daylog summary::before{content:"▸";color:var(--muted2)} .daylog[open] summary::before{content:"▾"}
+.daylog table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+.daylog th,.daylog td{padding:7px 8px;border-bottom:1px solid var(--line2);text-align:right;white-space:nowrap}
+.daylog th:first-child,.daylog td:first-child{text-align:left}
+.daylog th{font-size:12px;font-weight:600;color:var(--muted2)}

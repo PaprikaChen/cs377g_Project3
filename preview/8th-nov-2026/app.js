@@ -410,6 +410,9 @@ function progressHTML(phase) {
   return `<ol class="progress" aria-label="Step ${i + 1} of 5: ${STEPS[i] ? STEPS[i][1] : ''}">${STEPS.map(([, n], j) =>
     `${j ? '<li class="sep" aria-hidden="true"></li>' : ''}<li class="${j === i ? 'on' : j < i ? 'done' : ''}"><span class="pd"></span>${n}</li>`).join('')}</ol>`;
 }
+// Light / dark theme: follows the computer's setting until the player picks one with the header button (remembered on this device)
+const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+{ const t = lsGet('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; }
 function renderBar() {
   const S = app.S, bar = $('#bar');
   let mid = '';
@@ -419,11 +422,12 @@ function renderBar() {
     else mid = `<span class="day"><b>Day ${S.round} of ${CFG.rounds}</b>${S.round === CFG.rounds ? ' · last day' : ''}</span>${progressHTML(S.phase)}`;
   }
   let tools = '';
-  if (app.mode === 'online') tools = `<span>Room <b style="color:var(--ink);letter-spacing:.06em">${esc(app.code)}</b></span><button class="btn" data-act="copy" aria-label="Copy room code">${ART.icon('copy', 14)}</button>`;
+  if (app.mode === 'online') tools = `<span>Room <b style="color:var(--ink);letter-spacing:.06em">${esc(app.code)}</b> · ${seatTag(app.me)}</span><button class="btn" data-act="copy" aria-label="Copy room code">${ART.icon('copy', 14)}</button>`;
   if (app.mode === 'local') tools = `<span>Practice</span>${['p1', 'p2'].map(s => `<button class="btn" data-act="view" data-seat="${s}" aria-pressed="${app.view === s}" style="${app.view === s ? 'border-color:var(--ink)' : ''}">Player ${s === 'p1' ? 1 : 2}${S && S.waiting[s] ? ' •' : ''}</button>`).join('')}`;
+  tools += `<button class="btn" data-act="theme" aria-label="Switch to ${isDark() ? 'light' : 'dark'} theme">${isDark() ? 'Light' : 'Dark'} mode</button>`;
   tools += '<button class="btn" data-act="howto">How to play</button>';
   if (app.mode) tools += `<button class="btn" data-act="leave">${app.mode === 'local' ? 'Quit' : 'Leave'}</button>`;
-  bar.innerHTML = `<img class="logo" src="${IMG.logo}" alt="Restaurant Rivals" data-act="home"><div class="mid">${mid}</div><div class="tools">${tools}</div>`;
+  bar.innerHTML = `<img class="logo" src="${IMG.logo}" alt="Restaurant Rivals"><div class="mid">${mid}</div><div class="tools">${tools}</div>`;
 }
 
 // ---------- landing ----------
@@ -549,6 +553,12 @@ function gameHTML() {
   if (app.mode === 'local' && app.cover === s && PRIVATE_PHASES.includes(S.phase)) return coverHTML(s);
   const noRival = app.mode === 'online' && S.phase === 'pick' && !(app.seats.p2 && app.seats.p2.uid);
   const waitRival = noRival ? `<div class="callout"><span class="dot round rival" style="margin-top:6px"></span><span><b>Waiting for your rival to join</b>Send them this page and the code <b style="display:inline;letter-spacing:.08em">${esc(app.code)}</b>.</span></div>` : '';
+  // One-screen practice: say whose turn it is (the old "Playing as P1" bar)
+  const playing = app.mode === 'local' && S.phase !== 'over' ? `<div class="strip soft"><span class="dot round ${s === 'p1' ? 'you' : 'rival'}"></span><span><b>Playing as ${esc(nameOf(s))}</b> · switch players with the buttons at the top. Look away when it's not your turn.</span></div>` : '';
+  return playing + phaseHTML(s, waitRival);
+}
+function phaseHTML(s, waitRival) {
+  const S = app.S;
   switch (S.phase) {
     case 'pick': return waitRival + pickHTML(s);
     case 'morning': return `<section class="panel" style="justify-self:center"><p class="wait"><span class="dot round rival"></span>Opening up for the day…</p></section>`;
@@ -620,8 +630,9 @@ function buildHTML(s) {
     return statusHTML(s) + `<div class="game"><section class="panel lift">${titleHTML('Build', 'Get your restaurant ready before the doors open.')}${morning}
       ${floorBuild(p, 0, p.held)}</section><aside class="stack">${waitCard(o, `You chose: ${bits.join(', ')}.`, `<span class="hint">The Market opens as soon as they're done. It lasts ${CFG.market.time} seconds, and the fastest clicks get the food.</span>`)}</aside></div>`;
   }
-  const f = F({ tables: 0, choice: null }), needChoice = e && e.type !== 'quiet';
-  const cash = p.cash + (f.choice === 'accept' ? CFG.shady.cash : 0);
+  const f = F({ tables: 0, choice: null, loan: false }), needChoice = e && e.type !== 'quiet';
+  const loanOn = CFG.loan.enabled && !p.loan; // loans are off in CFG for now; this brings the option back if the team turns them on
+  const cash = p.cash + (f.choice === 'accept' ? CFG.shady.cash : 0) + (loanOn && f.loan ? CFG.loan.amount : 0);
   const room = CFG.maxTables - p.tables, afford = Math.floor(Math.max(0, cash) / CFG.tableCost), maxT = Math.max(0, Math.min(room, afford));
   if (f.tables > maxT) f.tables = maxT;
   const total = p.tables + f.tables, held = f.choice === 'hold' ? Math.min(CFG.noshow.tables, total) : 0;
@@ -658,6 +669,9 @@ function buildHTML(s) {
       ${f.tables >= maxT && maxT < room ? `<span class="hint">That's all your cash allows today: ${plural(maxT, 'table')} at $${CFG.tableCost} each.</span>` : ''}
       <div class="lines"><div><span class="muted">${plural(f.tables, 'new table')}</span><b>${usd(-f.tables * CFG.tableCost)}</b></div><div><span class="muted">Cash left for the market and ads</span><b>${usd(cash - f.tables * CFG.tableCost)}</b></div></div>
       <p class="hint">${last ? '<b style="color:var(--ink)">Last day.</b> Tables don\'t add to your final score. Only buy what you\'ll use tonight. ' : ''}Careful: if more than half your tables are empty at closing, you might lose a star. You can have up to ${CFG.maxTables} tables.</p></section>`;
+  const loanCard = !loanOn ? '' : `<section class="panel"><h2 style="font-family:var(--display);font-size:18px">Take a loan?</h2><span class="sub">Get $${CFG.loan.amount} now and pay back $${CFG.loan.repay} at the end of the game. Once per game.</span>
+    <div role="radiogroup" style="display:grid;gap:8px"><button type="button" class="choice ${f.loan ? 'on' : ''}" role="radio" aria-checked="${!!f.loan}" data-act="loan" data-v="1"><span class="rd"></span><span><b>Take $${CFG.loan.amount}</b><span class="d">You'll owe $${CFG.loan.repay} at the end.</span></span></button>
+    <button type="button" class="choice ${f.loan ? '' : 'on'}" role="radio" aria-checked="${!f.loan}" data-act="loan" data-v="0"><span class="rd"></span><span><b>No loan</b></span></button></div></section>`;
   const done = needChoice && !f.choice
     ? `<div class="center-note">Answer the offer above to continue<span>It's a yes or no. Neither is wrong.</span></div>`
     : `<button class="cta" data-act="invest">Done, go to the Market →</button><span class="hint" style="text-align:center">The Market opens when you're both done. It lasts ${CFG.market.time} seconds, so be ready.</span>`;
@@ -668,7 +682,7 @@ function buildHTML(s) {
         <div class="tile"><span class="k">Tables for walk-in guests</span><span class="v">${walkins}</span><span class="s">${held ? `${total} tables, minus ${held} held for the booking` : 'all your tables'}</span></div>
         <div class="tile"><span class="k">Food so far</span><span class="v">${p.ingr}</span><span class="s">${p.ingr ? 'each guest needs 1, so you\'ll likely need more' : 'none yet: you\'ll buy it at the Market'}</span></div></div>
     </section>
-    <aside class="stack">${offer}${tables}${done}</aside></div>`;
+    <aside class="stack">${offer}${loanCard}${tables}${done}</aside></div>`;
 }
 function floorBuild(p, add, held) {
   const own = [...Array(p.tables).fill('free'), ...Array(add).fill('new')];
@@ -888,7 +902,13 @@ function serviceHTML(s) {
       ${rv && rv.ok === false ? '<span class="hint">Your ad cards couldn\'t be found on this device, so they did nothing and cost nothing.</span>' : `<div class="lines"><div class="tot" style="font-size:13px"><span class="muted">Total so far</span><b>${usd(paid)} for ${plural(brought, 'guest')}</b></div></div>`}</section>` : '';
     const tricks = rivC.length ? `<section class="panel"><div class="row" style="gap:8px"><span class="dot rival"></span><h2>${esc(nameOf(o))}'s sabotage</h2></div><span class="sub" style="margin-top:-6px">Your rival paid for these cards to make your night harder.</span>
       <div>${rivC.map(x => { const [a, b] = trickResult(x, s); return `<div class="cardline"><span class="lead">${a}</span><span class="sm">${b}</span></div>`; }).join('')}</div></section>` : '';
-    const lines = shown.map(x => logLine(x, s)).filter(Boolean).reverse();
+    // Why regulars came or stayed home (the old play-by-play showed each roll)
+    const sc = S.script[s], d = p.stars - CFG.startStars, rolled = shown.some(x => x.k === 'rep' || x.k === 'lose');
+    const repLine = !rolled ? null
+      : sc.repGain ? `Your ${p.stars} stars brought ${plural(sc.repGain, 'extra regular')} (${d * CFG.rep.perStar} could come, each with a ${Math.round(CFG.rep.chance * 100)}% chance).`
+      : sc.repLoss ? `${plural(sc.repLoss, 'regular')} stayed home because you only have ${plural(p.stars, 'star')} (${-d * CFG.rep.perStar} were unsure, each with a ${Math.round(CFG.rep.loseChance * 100)}% chance of staying home).`
+      : d > 0 ? `Your ${p.stars} stars could have brought extra regulars, but none came tonight.` : 'All your regulars stayed loyal, even with your low stars.';
+    const lines = [...(repLine ? [repLine] : []), ...shown.map(x => logLine(x, s)).filter(Boolean)].reverse();
     const log = `<section class="panel"><h2>Tonight so far</h2><ol class="log">${lines.length ? lines.slice(0, 6).map((t, i) => `<li class="${i === 0 ? 'now' : ''}"><span class="w">${i === 0 ? 'NOW' : i === lines.length - 1 ? 'START' : ''}</span>${esc(t)}</li>`).join('') : '<li><span class="w"></span>Opening up…</li>'}</ol></section>`;
     return ads + tricks + log;
   };
@@ -1028,9 +1048,20 @@ function recapHTML(s) {
       <div class="tile"><span class="v">${v.served} of ${v.demand}</span><span class="s">guests seated</span></div><div class="tile ${v.turned ? 'bad' : ''}"><span class="v">${v.turned}</span><span class="s">left unhappy${v.vouchers ? ` (${v.vouchers} got a voucher)` : ''}</span></div>
       <div class="tile"><span class="v">${h.spoiled}</span><span class="s">plates thrown away</span></div><div class="tile"><span class="v">${v.empty || 0}</span><span class="s">empty tables</span></div></div></section>
     <div class="stack"><section class="panel edge"><span class="hint" style="font-weight:700;color:var(--muted)">For tomorrow</span><b style="font-size:15px;line-height:1.35">${tipA}</b><span style="font-size:13px;color:var(--ink2);line-height:1.45">${tipB}</span>${last ? '' : tomorrowFood}</section>
-      <section class="panel" style="grid-template-columns:auto 1fr;align-items:center"><span class="dot round rival"></span><span style="font-size:13px;color:var(--ink2)"><b style="color:var(--ink)">${esc(nameOf(o))}</b> seated ${rv.served}, ${rv.turned} left unhappy${rd ? `, ${rd > 0 ? 'gained' : 'lost'} ${plural(Math.abs(rd), 'star')}` : ''}</span></section>
+      <section class="panel" style="grid-template-columns:auto 1fr;align-items:center"><span class="dot round rival"></span><span style="font-size:13px;color:var(--ink2)"><b style="color:var(--ink)">${esc(nameOf(o))}</b> seated ${rv.served}, ${rv.turned} left unhappy${rd ? `, ${rd > 0 ? 'gained' : 'lost'} ${plural(Math.abs(rd), 'star')}` : ''}. ${S.reveals[o] && S.reveals[o].self.length ? `Their ads: ${S.reveals[o].self.map(id => esc(CFG.ads[id].name)).join(', ')}.` : 'No ads for their own restaurant.'}</span></section>
       ${btn}</div>
-  </div>`;
+  </div>${dayLogHTML(s)}`;
+}
+// Every finished day for both restaurants (the old "Daily log" table), folded away by default
+function dayLogHTML(s) {
+  const S = app.S, rows = [];
+  for (let r = 1; r <= CFG.rounds; r++) for (const w of [s, other(s)]) {
+    const h = S.players[w].history.find(x => x.round === r); if (!h) continue;
+    rows.push(`<tr><td>Day ${r} · ${esc(nameOf(w))}</td><td>${h.demand}</td><td>${h.served}</td><td class="${h.turned ? 'neg' : ''}">${h.turned}</td><td>${h.spoiled}</td><td class="pos">+${usd(h.income)}</td><td>${usd(h.spend)}</td><td>${usd(h.cash)}</td><td>${h.stars}</td></tr>`);
+  }
+  if (!rows.length) return '';
+  return `<details class="panel daylog"><summary><b>Every day so far</b><span class="hint">guests, money and stars for both restaurants</span></summary>
+    <div style="overflow-x:auto"><table><thead><tr><th>Day</th><th>Came</th><th>Seated</th><th>Left unhappy</th><th>Thrown away</th><th>Money in</th><th>Money out</th><th>Cash</th><th>Stars</th></tr></thead><tbody>${rows.join('')}</tbody></table></div></details>`;
 }
 
 // ---------- final results ----------
@@ -1049,7 +1080,7 @@ function finalHTML(s) {
   else if (meWon) { head = 'You win!'; line = `${app.mode === 'online' ? 'Your' : `${esc(nameOf(s))}'s`} ${restName(p.loc)} restaurant beat ${esc(nameOf(o))}'s by <b>${usd(gap)}</b>.`; }
   else { head = gap < CFG.starValue ? 'So close!' : `${esc(nameOf(o))} wins this one`; line = `${esc(nameOf(o))} won by ${usd(gap)}.${gap < CFG.starValue ? " That's less than one star." : ''}`; }
   const big = meWon ? gold(esc(head)) : `<span class="plain">${esc(head)}</span>`;
-  const card = (w, place) => `<div class="score ${place === 1 ? 'win' : ''}"><span class="w"><span class="dot ${w === s ? 'you' : 'rival'}"></span>${w === s ? esc(you) : esc(nameOf(w))}${tie ? '' : ` · ${place === 1 ? '1st' : '2nd'}`}</span><span class="n">${sc[w].total}</span><span class="s">${usd(sc[w].cash)} cash + ${S.players[w].stars} ★ ($${sc[w].starPts})</span></div>`;
+  const card = (w, place) => `<div class="score ${place === 1 ? 'win' : ''}"><span class="w"><span class="dot ${w === s ? 'you' : 'rival'}"></span>${w === s ? esc(you) : esc(nameOf(w))}${tie ? '' : ` · ${place === 1 ? '1st' : '2nd'}`}</span><span class="n">${sc[w].total}</span><span class="s">${usd(sc[w].cash)} cash + ${S.players[w].stars} ★ ($${sc[w].starPts})${sc[w].loan ? ` − loan $${-sc[w].loan}` : ''}</span></div>`;
   const first = R.winner === o ? o : s;
   // the race chart
   const days = Math.max(p.history.length, q.history.length);
@@ -1087,7 +1118,7 @@ function finalHTML(s) {
         <li>${gold(3, 'sm')}Which ad was worth its price? Which trick hurt you most?</li><li>${gold(4, 'sm')}Did you take the shady deal? Would you again?</li></ol></section>
     <section class="again"><b>${meWon ? 'Think you can win by more?' : 'Want a rematch?'}</b><span>Each game deals different offers, cards and surprises. ${p.loc === 'city' ? 'Try the Countryside' : 'Try the City'} next time.</span>
       ${app.mode === 'local' ? '<button class="cta" data-act="local">Play again</button>' : `<button class="cta" data-act="create">Start a new game</button>`}<button class="ghost" data-act="leave">Back to the start</button></section>
-  </div>`;
+  </div>${dayLogHTML(s)}`;
 }
 
 // ---------- events ----------
@@ -1099,9 +1130,9 @@ document.addEventListener('click', e => {
     case 'rejoin': return joinGame(b.dataset.code);
     case 'local': return startLocal();
     case 'leave': app.howto = null; return leave(false);
-    case 'home': if (!app.mode) return; return;
     case 'view': app.view = b.dataset.seat; if (S && PRIVATE_PHASES.includes(S.phase)) app.cover = app.view; return render();
     case 'cover-ok': app.cover = null; return render();
+    case 'theme': { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; lsSet('theme', t); return render(); }
     case 'intro': app.intro++; return render();
     case 'introskip': app.intro = INTRO.length; return render();
     case 'howto': {
@@ -1118,6 +1149,7 @@ document.addEventListener('click', e => {
     }
     case 'inc': { const f = F({}); f[b.dataset.f] = (f[b.dataset.f] || 0) + Number(b.dataset.d); return render(); }
     case 'choose': { const f = F({}); f.choice = b.dataset.c; return render(); }
+    case 'loan': { const f = F({}); f.loan = b.dataset.v === '1'; return render(); }
     case 'ad': {
       const f = F({ sel: [] }), id = b.dataset.id;
       f.sel = f.sel.includes(id) ? f.sel.filter(x => x !== id) : [...f.sel, id];
@@ -1128,7 +1160,7 @@ document.addEventListener('click', e => {
   if (!k) return;
   switch (a) {
     case 'pick': return act(s, { k, loc: b.dataset.loc });
-    case 'invest': { const f = F({}); return act(s, { k, tables: f.tables || 0, choice: f.choice || null, loan: false }); }
+    case 'invest': { const f = F({}); return act(s, { k, tables: f.tables || 0, choice: f.choice || null, loan: !!(CFG.loan.enabled && f.loan) }); }
     case 'grab': return claimItem(s, Number(b.dataset.i));
     case 'mkdone': return finishMarket(s);
     case 'commit': {
