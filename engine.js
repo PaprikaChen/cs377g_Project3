@@ -416,7 +416,8 @@ function apply(S, got) {
         const p = S.players[s], a = got[s], e = S.events[s];
         if (e.type === 'shady') {
           e.choice = a.choice === 'accept' ? 'accept' : 'decline';
-          if (e.choice === 'accept') { money(p, 'Shady deal', CFG.shady.cash); p.shadyFrom = r; }
+          // A second deal while one is still active keeps the original start day, so it can't skip a day's inspection
+          if (e.choice === 'accept') { money(p, 'Shady deal', CFG.shady.cash); if (p.shadyFrom === null) p.shadyFrom = r; }
         } else if (e.type === 'noshow') {
           e.choice = a.choice === 'hold' ? 'hold' : 'release';
           if (e.choice === 'hold') p.held = CFG.noshow.tables;
