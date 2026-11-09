@@ -75,7 +75,7 @@ window.__shot = (() => {
     if (extra.form) a.form[`${view}|${S.waiting[view]}`] = extra.form;
     if (extra.market) {
       const now = Date.now(), items = S.market.items;
-      a.mkt = { key: `shot:${g.seed}:${S.round}`, owner: extra.market.owner, start: now - extra.market.elapsed * 1000, mine: {} };
+      a.mkt = { key: `shot:${g.seed}:${S.round}`, owner: extra.market.owner, start: extra.market.elapsed == null ? null : now - extra.market.elapsed * 1000, ready: extra.market.ready || {}, mine: {} };
       if (extra.market.cooling != null) { const i = extra.market.cooling; a.cool[view] = { i, type: items[i], start: now - 1000, until: now + CFG.market[items[i]].cd * 1000 - 1000 }; }
     }
     if (extra.svc) a.svc[view] = { key: `shot:${g.seed}:${S.round}:${view}`, started: true, ops: [], busy: null, waitAt: Date.now() - 3000, last: Date.now(), fast: false, msg: '', ...extra.svc };
@@ -102,6 +102,8 @@ SCREENS = [
   ('07-build-booking', "{ const g = __shot.find('invest', 2, S => S.events.p1.type === 'noshow'); __shot.load(g, 'p1', { form: { tables: 1, choice: 'hold' } }) }"),
   ('08-build-shady-unanswered', "{ const g = __shot.find('invest', 2, S => S.events.p1.type === 'shady'); __shot.load(g, 'p1', { form: { tables: 0, choice: null } }) }"),
   ('09-build-robbed', "{ const g = __shot.find('invest', null, S => S.round > 1 && S.morning.p1 && S.morning.p1.robbed > 0); if (g) __shot.load(g, 'p1', { form: { tables: 0, choice: null } }) }"),
+  ('10a-market-briefing', "{ const g = __shot.playTo('shot0', 'market', 2); __shot.load(g, 'p1', { market: { owner: {}, elapsed: null } }) }"),
+  ('10b-market-waiting-rival', "{ const g = __shot.playTo('shot0', 'market', 2); __shot.load(g, 'p1', { market: { owner: {}, elapsed: null, ready: { p1: Date.now() - 8000 } } }) }"),
   ('10-market', "{ const g = __shot.playTo('shot0', 'market', 2); __shot.load(g, 'p1', { market: { owner: { 0: 'p1', 1: 'p2', 2: 'p2', 4: 'p1', 5: 'p2' }, elapsed: 24, cooling: 4 } }) }"),
   ('11-market-last-day', "{ const g = __shot.find('market', 5, S => true, { loc: { p1: 'country', p2: 'country' }, rush: true }); __shot.load(g, 'p1', { market: { owner: { 0: 'p2' }, elapsed: 5 } }) }"),
   ('12-ads', "{ const g = __shot.playTo('shot0', 'commit', 2); const sh = g.S.shops.p1; __shot.load(g, 'p1', { form: { sel: [sh.self[0], sh.rival[0]] } }) }"),

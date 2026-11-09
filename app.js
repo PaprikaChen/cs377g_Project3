@@ -247,7 +247,7 @@ function tick() {
 }
 function liveSig() {
   const S = app.S, now = Date.now();
-  if (S.phase === 'market') return JSON.stringify([app.mkt && app.mkt.owner, app.mkt && !!app.mkt.start, controlled().map(s => [!!(app.cool[s] && now < app.cool[s].until), !!app.claiming[s]]), mktTimeLeft() > 0, S.waiting, S.submitted, app.view]);
+  if (S.phase === 'market') return JSON.stringify([app.mkt && app.mkt.owner, app.mkt && !!app.mkt.start, mktOpen(), app.mkt && app.mkt.ready, controlled().map(s => [!!(app.cool[s] && now < app.cool[s].until), !!app.claiming[s]]), mktTimeLeft() > 0, S.waiting, S.submitted, app.view]);
   return JSON.stringify([controlled().map(s => { const v = app.svc[s]; return v ? [v.started, v.idx, v.closed, v.ops.length, !!v.busy, v.msg, v.fast] : 0; }), S.waiting, S.submitted, app.view]);
 }
 // Time-driven bars: data-t0 / data-t1 are timestamps; drain bars empty out instead of filling up.
@@ -269,21 +269,42 @@ function ensureMarket() {
   const key = `${app.code}:${app.seed}:${app.S.round}`;
   if (app.mkt && app.mkt.key === key) return;
   if (app.mktUnsub) { try { app.mktUnsub(); } catch (e) {} app.mktUnsub = null; }
-  app.mkt = { key, owner: {}, start: null };
+  // The 60 seconds don't start until both players have read the market briefing and pressed Start
+  // (or MKT_WAIT after the first one did). `start` is then set a few seconds ahead for a "get ready" countdown.
+  app.mkt = { key, owner: {}, start: null, ready: {}, mine: {} };
   app.cool = {}; app.claiming = {};
-  if (app.mode === 'local') { app.mkt.start = Date.now(); return; }
+  if (app.mode === 'local') return;
   app.mktUnsub = app.fb.watchDoc(mktPath(), snap => {
     if (!app.mkt || app.mkt.key !== key) return;
     const d = snap.data || {};
     app.mkt.owner = { ...(d.owner || {}), ...app.mkt.mine };
+    app.mkt.ready = d.ready || {};
     if (d.start) app.mkt.start = d.start;
     render();
   });
-  app.mkt.mine = {};
-  app.fb.tx(mktPath(), d => (d && d.start ? null : { owner: (d && d.owner) || {}, start: Date.now() }))
-    .then(d => { if (d && d.start && !app.mkt.start) app.mkt.start = d.start; })
-    .catch(e => toast(writeErr(e)));
 }
+const MKT_COUNTDOWN = 3000, MKT_WAIT = 30000;
+function marketReady(s) {
+  if (!app.mkt || app.mkt.start) return;
+  if (app.mode === 'local') { app.mkt.start = Date.now() + MKT_COUNTDOWN; return render(); }
+  app.mkt.ready = { ...app.mkt.ready, [s]: Date.now() }; render();
+  app.fb.tx(mktPath(), d => {
+    d = d || {};
+    if (d.start) return null;
+    const ready = { ...(d.ready || {}), [s]: Date.now() };
+    return { ...d, owner: d.owner || {}, ready, ...(ready.p1 && ready.p2 ? { start: Date.now() + MKT_COUNTDOWN } : {}) };
+  }).then(d => { if (d && d.start && !app.mkt.start) app.mkt.start = d.start; }).catch(e => toast(writeErr(e)));
+}
+// If one player never presses Start, open the market anyway MKT_WAIT after the other did
+function marketForceStart() {
+  const m = app.mkt; if (!m || m.start || m.forcing || app.mode === 'local') return;
+  const first = Math.min(...Object.values(m.ready || {}).filter(Number.isFinite));
+  if (!Number.isFinite(first) || Date.now() < first + MKT_WAIT) return;
+  m.forcing = true;
+  app.fb.tx(mktPath(), d => (d && d.start ? null : { ...(d || {}), owner: (d && d.owner) || {}, start: Date.now() + MKT_COUNTDOWN }))
+    .then(d => { if (d && d.start && !m.start) m.start = d.start; }).catch(() => {}).finally(() => { m.forcing = false; });
+}
+const mktOpen = () => !!(app.mkt && app.mkt.start && Date.now() >= app.mkt.start);
 const mktTimeLeft = () => (app.mkt && app.mkt.start ? CFG.market.time * 1000 - (Date.now() - app.mkt.start) : CFG.market.time * 1000);
 const ownedBy = s => Object.keys(app.mkt ? app.mkt.owner : {}).filter(i => app.mkt.owner[i] === s).map(Number).sort((a, b) => a - b);
 function mktCashLeft(s) {
@@ -292,7 +313,7 @@ function mktCashLeft(s) {
 }
 async function claimItem(s, i) {
   const S = app.S, M = CFG.market, type = S.market.items[i], k = S.waiting[s];
-  if (!k || app.claiming[s]) return;
+  if (!k || app.claiming[s] || !mktOpen()) return;
   const c = app.cool[s];
   if (c && Date.now() < c.until) { const el = document.querySelector('.strip'); if (el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); } return toast('Wait for your delivery to finish first.'); }
   if (app.mkt.owner[i]) return toast(app.mkt.owner[i] === s ? 'You already have that one.' : `Too slow! ${nameOf(app.mkt.owner[i])} got that one.`);
@@ -323,6 +344,7 @@ function finishMarket(s) {
 }
 function marketTick() {
   const S = app.S, free = S.market.items.some((_, i) => !app.mkt.owner[i]);
+  if (!mktOpen()) return marketForceStart();
   for (const s of controlled()) if (S.waiting[s] && !app.claiming[s] && (mktTimeLeft() <= 0 || !free)) finishMarket(s);
 }
 
@@ -696,7 +718,38 @@ function floorBuild(p, add, held) {
 }
 
 // ---------- market ----------
+// Before the clock starts: what Express and Regular mean, so players can plan (from the team's sketch)
+function marketBriefHTML(s) {
+  const S = app.S, M = CFG.market, p = S.players[s], o = other(s), mk = app.mkt || {}, now = Date.now();
+  const last = S.round >= CFG.rounds, E = expectedDemand(p), tables = Math.max(0, p.tables - p.held);
+  const guests = E.min === E.max ? `${E.min}` : `${Math.max(0, E.min)} to ${E.max}`;
+  const card = (type, title, price, line, sub) => `<div class="brief-card"><span class="tbox ${type}">${ART.icon(type === 'exp' ? 'bolt' : 'box', 26)}</span>
+    <b>${title}</b><span class="price">$${price} each</span><span class="line">${line}</span><span class="hint">${sub}</span></div>`;
+  let action;
+  if (mk.start && now < mk.start) action = `<div class="brief-go"><span class="hint">Get ready…</span><b class="gold" data-count="${mk.start}">${Math.ceil((mk.start - now) / 1000)}s</b></div>`;
+  else if (mk.ready && mk.ready[s]) {
+    const first = Math.min(...Object.values(mk.ready).filter(Number.isFinite));
+    action = `<div class="center-note" style="max-width:420px;justify-self:center"><span class="wait" style="justify-content:center"><span class="dot round rival"></span>Waiting for ${esc(nameOf(o))} to press Start…</span>
+      <span>The market opens in <b data-count="${first + MKT_WAIT}">${Math.max(0, Math.ceil((first + MKT_WAIT - now) / 1000))}s</b> either way.</span></div>`;
+  } else action = `<button class="cta brief-start" data-act="mkstart">Start!<small>The ${M.time} seconds begin when you've both pressed Start</small></button>`;
+  return `<section class="panel lift brief" aria-labelledby="brief-title">
+    <h1 id="brief-title">It's time for grocery shopping!</h1>
+    <ol class="brief-rules">
+      <li>${gold(1, 'sm')}<span>You and ${esc(nameOf(o))} shop at the same time for <b>${M.time} seconds</b>. Whoever clicks an item first gets it.</span></li>
+      <li>${gold(2, 'sm')}<span>After each buy you wait a few seconds while it's delivered (${last ? `${M.exp.cd}s` : `${M.exp.cd}s for Express, ${M.reg.cd}s for Regular`}). You can't grab anything else meanwhile.</span></li>
+      <li>${gold(3, 'sm')}<span>Every guest needs 1 plate. Food you don't use tonight goes bad overnight, so buy what you'll need.</span></li>
+    </ol>
+    <div class="brief-cards ${last ? 'one' : ''}">
+      ${card('exp', 'Express', M.exp.price, 'Arrives today!', 'Always in time for tonight')}
+      ${last ? '' : card('reg', 'Regular', M.reg.price, `${Math.round((1 - M.reg.tomorrow) * 100)}% chance it arrives today, ${Math.round(M.reg.tomorrow * 100)}% tomorrow`, S.round === CFG.rounds - 1 ? "Cheaper, but you only find out which day after you buy it. Tomorrow is the last day." : 'Cheaper, but you only find out which day after you buy it')}
+    </div>
+    ${last ? '<p class="hint" style="text-align:center">Last day: only Express food is sold.</p>' : ''}
+    <div class="brief-plan"><span><b>Tonight:</b> about ${guests} guests expected</span><span>${plural(tables, 'table')} free</span><span>${plural(p.ingr, 'plate')} already in your kitchen</span><span>${usd(p.cash)} to spend</span></div>
+    ${action}
+  </section>`;
+}
 function marketHTML(s) {
+  if (!mktOpen()) return marketBriefHTML(s);
   const S = app.S, M = CFG.market, items = S.market.items, mk = app.mkt || { owner: {} }, o = other(s), now = Date.now();
   const left = mktTimeLeft(), cash = mktCashLeft(s), c = app.cool[s], cooling = c && now < c.until;
   const mine = ownedBy(s), theirs = ownedBy(o), done = !S.waiting[s], p = S.players[s];
@@ -1165,6 +1218,7 @@ document.addEventListener('click', e => {
     case 'invest': { const f = F({}); return act(s, { k, tables: f.tables || 0, choice: f.choice || null, loan: !!(CFG.loan.enabled && f.loan) }); }
     case 'grab': return claimItem(s, Number(b.dataset.i));
     case 'mkdone': return finishMarket(s);
+    case 'mkstart': return marketReady(s);
     case 'commit': {
       const f = F({ sel: [] }), A = CFG.ads;
       return commitCards(s, k, { self: f.sel.filter(id => A[id].side === 'self'), rival: f.sel.filter(id => A[id].side === 'rival') });

@@ -3,7 +3,7 @@ from playwright.async_api import async_playwright
 
 # Plays a full v2 game as two players on two pages over the fake backend (tests/fake-backend.js).
 # Usage: python tests/online.test.py http://localhost:8765/index.html
-ORDER = ['[data-act=introskip]', '[data-act=pick]', '[data-act=next]', '[data-act=voucher]', '[data-act=svcdone]',
+ORDER = ['[data-act=introskip]', '[data-act=mkstart]', '[data-act=pick]', '[data-act=next]', '[data-act=voucher]', '[data-act=svcdone]',
          '[data-act=svc][data-a=refuse]', '[data-act=svc][data-a=rush]:not([disabled])', '[data-act=svc][data-a=letgo]',
          '[data-act=play]']
 
