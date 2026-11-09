@@ -424,7 +424,7 @@ function renderBar() {
   let tools = '';
   if (app.mode === 'online') tools = `<span>Room <b style="color:var(--ink);letter-spacing:.06em">${esc(app.code)}</b> · ${seatTag(app.me)}</span><button class="btn" data-act="copy" aria-label="Copy room code">${ART.icon('copy', 14)}</button>`;
   if (app.mode === 'local') tools = `<span>Practice</span>${['p1', 'p2'].map(s => `<button class="btn" data-act="view" data-seat="${s}" aria-pressed="${app.view === s}" style="${app.view === s ? 'border-color:var(--ink)' : ''}">Player ${s === 'p1' ? 1 : 2}${S && S.waiting[s] ? ' •' : ''}</button>`).join('')}`;
-  tools += `<button class="btn" data-act="theme" aria-label="Switch to ${isDark() ? 'light' : 'dark'} theme">${isDark() ? 'Light' : 'Dark'} mode</button>`;
+  tools += `<button class="btn" data-act="theme" aria-label="Switch to ${isDark() ? 'light' : 'dark'} theme" title="Switch to ${isDark() ? 'light' : 'dark'} theme">${ART.icon(isDark() ? 'sun' : 'moon', 16)}</button>`;
   tools += '<button class="btn" data-act="howto">How to play</button>';
   if (app.mode) tools += `<button class="btn" data-act="leave">${app.mode === 'local' ? 'Quit' : 'Leave'}</button>`;
   bar.innerHTML = `<img class="logo" src="${IMG.logo}" alt="Restaurant Rivals"><div class="mid">${mid}</div><div class="tools">${tools}</div>`;
@@ -443,7 +443,7 @@ function lobbyHTML() {
         <h1 class="headline" aria-label="2 Restaurants. 2 Rivals. 5 Days."><span>${gold(2)}Restaurants.</span><span>${gold(2)}Rivals.</span><span>${gold(5)}Days.</span></h1>
         <p>Open a restaurant with $${CFG.startCash}, grab ingredients before your rival does, and use ads to pull guests in, or to trip your rival up. The restaurant with the most cash and best rating after ${CFG.rounds} days wins.</p>
       </div>
-      ${app.dbMsg ? `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.dbMsg)}</span></div>` : ''}
+      ${!app.dbMsg ? '' : app.dbMsg === 'Connecting…' ? '<p class="wait"><span class="dot round you"></span>Connecting to the game server…</p>' : `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.dbMsg)}</span></div>`}
       <div class="field"><label for="nick-in">Your name <span>· your rival sees this</span></label>
         <input type="text" id="nick-in" maxlength="12" autocomplete="nickname" placeholder="e.g. Sam" value="${esc(app.nick)}"></div>
       ${app.err ? `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.err)}</span></div>` : ''}
@@ -994,6 +994,8 @@ const WHY = { 'served everyone +1': 'Every guest who came got a table.', 'reserv
 const whyText = w => WHY[w] || (/^turned away (\d+)/.test(w) ? `${w.match(/^turned away (\d+)/)[1]} guests left without a table.` : /empty tables/.test(w) ? 'More than half your tables were empty at closing.' : w);
 function tipFor(s) {
   const S = app.S, v = S.service[s], h = S.players[s].history.slice(-1)[0], L = CFG.loc[S.players[s].loc];
+  const robbed = S.morning[s] && S.morning[s].robbed;
+  if (robbed && !v.turned && !v.rush.n && h.spoiled <= 1) return [`A thief took ${usd(robbed)} last night.`, "That's bad luck, not your running of the restaurant: nobody was turned away and almost nothing went to waste."];
   if (v.turned > 0 && v.empty > 0) return [`${plural(v.turned, 'guest')} left because you ran out of food.`, `A Regular at the Market is $${CFG.market.reg.price}. Buying ahead is cheaper than losing stars.`];
   if (v.turned > 0) return [`${plural(v.turned, 'guest')} had nowhere to sit.`, `Tables are $${CFG.tableCost} and you keep them for the rest of the game.`];
   if (v.rush.n) return [`You were ${plural(v.rush.n, 'plate')} short and had to rush ${v.rush.n === 1 ? 'it' : 'them'} for ${usd(v.rush.cost)}.`, `One more Regular at the Market costs $${CFG.market.reg.price}. Buying ahead is cheaper than rushing.`];
@@ -1033,7 +1035,7 @@ function recapHTML(s) {
     <section class="hero">${profit > 0 ? confetti : ''}<span class="eyebrow">Day ${S.round} is done</span>
       <div class="money">${profit > 0 ? `<span>You made a profit of</span>${gold(`+$${profit}`)}<span>tonight.${best ? ' Your best day so far.' : ''}</span>`
         : profit === 0 ? `<span>You broke even</span><span class="loss">$0</span><span>tonight. See the tip below.</span>`
-        : `<span>Tonight you lost</span><span class="loss">${usd(profit)}</span><span>A tough night. See the tip below.</span>`}</div>
+        : `<span>Tonight you lost</span><span class="loss">${usd(profit)}</span><span>${S.morning[s] && S.morning[s].robbed ? "Mostly because of last night's break-in." : 'A tough night. See the tip below.'}</span>`}</div>
       <div class="starbox"><span class="gstars" role="img" aria-label="Stars went from ${v.starsBefore} to ${v.starsAfter}">${gs}</span><span><b>${starHead}</b><span>${whys.length ? esc(whys.join(' ')) : 'Nothing changed your rating tonight.'}${capped}</span></span></div>
     </section>
     <section class="race"><div class="hd"><h2>The race</h2><span>score = cash + $${CFG.starValue} per star</span></div>
@@ -1080,7 +1082,7 @@ function finalHTML(s) {
   else if (meWon) { head = 'You win!'; line = `${app.mode === 'online' ? 'Your' : `${esc(nameOf(s))}'s`} ${restName(p.loc)} restaurant beat ${esc(nameOf(o))}'s by <b>${usd(gap)}</b>.`; }
   else { head = gap < CFG.starValue ? 'So close!' : `${esc(nameOf(o))} wins this one`; line = `${esc(nameOf(o))} won by ${usd(gap)}.${gap < CFG.starValue ? " That's less than one star." : ''}`; }
   const big = meWon ? gold(esc(head)) : `<span class="plain">${esc(head)}</span>`;
-  const card = (w, place) => `<div class="score ${place === 1 ? 'win' : ''}"><span class="w"><span class="dot ${w === s ? 'you' : 'rival'}"></span>${w === s ? esc(you) : esc(nameOf(w))}${tie ? '' : ` · ${place === 1 ? '1st' : '2nd'}`}</span><span class="n">${sc[w].total}</span><span class="s">${usd(sc[w].cash)} cash + ${S.players[w].stars} ★ ($${sc[w].starPts})${sc[w].loan ? ` − loan $${-sc[w].loan}` : ''}</span></div>`;
+  const card = (w, place) => `<div class="score ${place === 1 && !tie ? 'win' : ''}"><span class="w"><span class="dot ${w === s ? 'you' : 'rival'}"></span>${w === s ? esc(you) : esc(nameOf(w))}${tie ? '' : ` · ${place === 1 ? '1st' : '2nd'}`}</span><span class="n">${sc[w].total}</span><span class="s">${usd(sc[w].cash)} cash + ${S.players[w].stars} ★ ($${sc[w].starPts})${sc[w].loan ? ` − loan $${-sc[w].loan}` : ''}</span></div>`;
   const first = R.winner === o ? o : s;
   // the race chart
   const days = Math.max(p.history.length, q.history.length);

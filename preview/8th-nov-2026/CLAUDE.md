@@ -65,6 +65,12 @@ python3 -m http.server 8765 &     # from the repo root
 python3 tests/online.test.py http://localhost:8765/index.html
 ```
 
+Screenshots of every screen in light and dark theme, in about 15 seconds (builds each game state straight from the engine instead of playing in real time):
+
+```
+python3 tests/screens.py http://localhost:8765/index.html out-folder
+```
+
 `online.test.py` uses `tests/fake-backend.js` in place of Firebase and plays a full game as two players on two pages, checking both sides get the same result, card reveals pass the checksum, and there are no page errors. The `window.__RR_FAKE_FB` check in `app.js` is for this test; don't remove it.
 
 ## Publishing
