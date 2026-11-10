@@ -900,52 +900,86 @@ function adText(id) {
   return [A.desc, ''];
 }
 const S_last = () => app.S && app.S.round >= CFG.rounds;
+// Card faces (style S1 from the mockups): emoji art placeholder, a big effect, one short line and a keyword tag.
+// Numbers come from CFG.ads; the wording is the team's (agreed on the mockup canvas).
+const KW = { SURE: ['✓', 'Always happens.'], GAMBLE: ['🎲', 'Might do nothing at all.'], IF: ['?', 'Only works if something else is true.'],
+  LASTING: ['∞', 'Keeps working on later days.'], BLUFF: ['🃏', 'Does nothing. Just makes them worry.'] };
+function adFace(id, o) {
+  const A = CFG.ads[id], pct = x => `${Math.round(x * 100)}%`, them = esc(nameOf(o || other(viewer())));
+  switch (id) {
+    case 'flyer': return { art: '📄', eff: `+${A.n} 👤`, line: 'Tonight only', kw: 'SURE' };
+    case 'coupon': return { art: '🎟️', eff: `+${A.n} 👤`, line: `Each pays $${A.off} less`, kw: 'SURE' };
+    case 'blogger': return { art: '📸', eff: `+${A.n} 👤`, line: `Seat all: ${pct(A.star)} for +1★`, kw: 'GAMBLE', pct: pct(A.chance) };
+    case 'stall': return { art: '🧺', eff: `+${A.n} 👤 +${A.food} 🍽`, line: 'Comes with a free plate', kw: 'SURE' };
+    case 'bus': return { art: '🚌', eff: `+${A.n} 👤`, line: 'Or nobody at all', kw: 'GAMBLE', pct: pct(A.chance) };
+    case 'wom': return { art: '💬', eff: `+${A.n} 👤 / day`, line: S_last() ? 'Last day: tonight only' : 'Today and every day after', kw: S_last() ? 'SURE' : 'LASTING' };
+    case 'delivery': return { art: '🛵', eff: `+${A.n} 🍽`, line: 'Uses food, no table', kw: 'SURE' };
+    case 'lunch': return { art: '🍱', eff: `+${A.n} 👤`, line: `Each pays $${A.off} less`, kw: 'SURE' };
+    case 'subway': return { art: '🚇', eff: `+${A.n} 👤`, line: `${pct(A.lowChance)}: only +${A.low}`, kw: 'GAMBLE', pct: pct(1 - A.lowChance) };
+    case 'review': return { art: '👎', eff: `−${A.n} 👤`, line: `${them} gets fewer guests`, kw: 'SURE' };
+    case 'poach': return { art: '🪝', eff: `${A.n} 👤 → you`, line: 'Theirs becomes yours', kw: 'SURE' };
+    case 'swamp': return { art: '🌊', eff: `+${A.n} 👤`, line: 'Helps them if they have room', kw: 'IF', pct: "THEY'RE FULL" };
+    case 'fakebook': return { art: '📋', eff: `🪑 ✕${A.tables}`, line: `${A.tables} of their tables sit empty`, kw: 'SURE' };
+    case 'corner': return { art: '📦', eff: `+$${A.extra} 🍽`, line: 'Only if they rush food', kw: 'IF', pct: 'THEY RUSH FOOD' };
+    case 'fake': return { art: '📣', eff: '? ? ?', line: `${them} over-prepares`, kw: 'BLUFF' };
+  }
+  return { art: '🃏', eff: '', line: A.desc, kw: 'SURE' };
+}
+const shortName = { lunch: 'Lunch deal', stall: 'Market stall', bus: 'Tour bus stop', wom: 'Word of mouth', delivery: 'Delivery app', blogger: 'Food blogger', corner: 'Corner supplier', fake: 'False advert' };
+const cardName = id => shortName[id] || CFG.ads[id].name;
+const kwChip = (kw, pct) => `<span class="kw ${kw.toLowerCase()}">${KW[kw][0]} ${kw}${pct ? ' ' + pct : ''}</span>`;
+// One card. state: '' | 'on' (played) | 'poor' (can't afford). tag = optional HTML tag for a button
+function adCard(id, o, { state = '', button = true, stamp = '' } = {}) {
+  const A = CFG.ads[id], f = adFace(id, o), side = A.side === 'self' ? 'you' : 'rival';
+  const inner = `<span class="ac-top"><span class="ac-nm">${esc(cardName(id))}</span><span class="coin">$${A.price}</span></span>
+    <span class="ac-art" aria-hidden="true">${f.art}${A.loc ? `<span class="ac-loc">${A.loc === 'city' ? 'CITY' : 'COUNTRY'}</span>` : ''}</span>
+    <span class="ac-eff">${f.eff}</span><span class="ac-line">${f.line}</span>${kwChip(f.kw, f.pct)}
+    ${state === 'on' ? '<span class="ac-played">✓ PLAYED</span>' : ''}${stamp}`;
+  const cls = `acard ${side} ${f.kw === 'GAMBLE' ? 'gamble' : ''} ${state}`;
+  const label = `${cardName(id)}, $${A.price}: ${f.eff.replace(/👤/g, 'guests').replace(/🍽/g, 'plates')}, ${f.line}. ${f.kw}${f.pct ? ' ' + f.pct : ''}`;
+  if (!button) return `<div class="${cls}" role="img" aria-label="${esc(label)}">${inner}</div>`;
+  return `<button type="button" class="${cls}" data-act="ad" data-id="${id}" aria-pressed="${state === 'on'}" aria-label="${esc(label)}${state === 'poor' ? ' (not enough cash)' : ''}" ${state === 'poor' ? 'disabled' : ''}>${inner}</button>`;
+}
+const cardBack = (i = 0) => `<div class="acard back" aria-hidden="true">${ART.badge('cb' + i)}</div>`;
 function adsHTML(s) {
   const S = app.S, p = S.players[s], o = other(s), k = S.waiting[s];
   if (!k) {
-    const mine = myCards(s), n = mine ? mine.self.length + mine.rival.length : 0, tricks = mine && mine.rival.length;
-    const g = S.got[o];
-    return `<div class="game"><section class="panel lift">${titleHTML('Ads', 'Your cards stay secret until service starts.')}
-      <div class="callout"><span><b>${n ? (tricks ? 'Your Tricks are hidden' : 'Your cards are placed') : 'No ads today'}</b>${n ? `${plural(n, 'card')} placed face down. You can't change them now.` : 'You chose not to buy any cards today.'}</span></div></section>
-      <aside class="stack">${waitCard(o, 'Service starts as soon as they place theirs.')}${S.submitted[o] && g ? `<section class="panel">x</section>` : ''}</aside></div>`.replace('<section class="panel">x</section>', '');
+    const mine = myCards(s), ids = mine ? [...mine.self, ...mine.rival] : [];
+    return `<div class="game"><section class="panel lift">${titleHTML('Your cards are face down', ids.length ? `${esc(nameOf(o))} only sees ${plural(ids.length, 'card back')}. They flip when service starts.` : 'You chose not to play any cards today.')}
+      ${ids.length ? `<div class="hand">${ids.map(id => adCard(id, o, { button: false })).join('')}</div>` : ''}</section>
+      <aside class="stack">${waitCard(o, 'Service starts as soon as they lock in theirs.')}</aside></div>`;
   }
   const f = F({ sel: [] }), sh = S.shops[s], A = CFG.ads;
   const cost = f.sel.reduce((a, id) => a + A[id].price, 0), left = p.cash - cost;
-  const card = (id, side) => {
-    const on = f.sel.includes(id), a = A[id], [d, odds] = adText(id), afford = on || a.price <= left;
-    const loc = a.loc ? `<span class="tg">${a.loc === 'city' ? 'City only' : 'Countryside only'}</span>` : '<span></span>';
-    if (!afford) return `<div class="ad poor ${side}"><span class="top"><span></span><b>$${a.price}</b></span><span class="nm">${esc(a.name)}</span><span class="d">${d}</span><span class="odds">$${a.price} · you have ${usd(left)} left</span></div>`;
-    return `<button type="button" class="ad ${side} ${on ? 'on' : ''}" data-act="ad" data-id="${id}" aria-pressed="${on}"><span class="top">${on ? `<span class="tg ch">${ART.icon('check', 11)} Chosen</span>` : loc}<b>$${a.price}</b></span>
-      <span class="nm">${esc(a.name)}</span><span class="d">${d}</span><span class="odds">${odds}</span></button>`;
-  };
   const self = f.sel.filter(id => A[id].side === 'self'), rival = f.sel.filter(id => A[id].side === 'rival');
-  const E = expectedDemand(p, self), poach = rival.includes('poach') ? A.poach.n : 0;
+  const E = expectedDemand(p, self), E0 = expectedDemand(p), poach = rival.includes('poach') ? A.poach.n : 0;
   const gMin = Math.max(0, E.min) + poach, gMax = E.max + poach, tables = Math.max(0, p.tables - p.held), food = p.ingr, deliv = self.includes('delivery') ? A.delivery.n : 0;
-  const seat = Math.min(tables + deliv, food), canAll = gMax <= seat;
-  const short = food < Math.min(gMax, tables + deliv) ? 'food' : 'tables';
-  const verdict = canAll ? `<b style="font-size:14px">You can serve every guest</b><span style="font-size:13px;color:var(--ink2);line-height:1.45">${seat > gMax + 2 ? `You'll have ${seat - gMax} seats and plates to spare. Spare food goes bad overnight.` : 'Your tables and food cover everyone.'}</span>`
-    : `<b style="font-size:14px">You can serve ${seat} of ${gMin === gMax ? gMax : `up to ${gMax}`} guests</b><span style="font-size:13px;color:var(--ink2);line-height:1.45">${short === 'food'
-      ? `You're short on food. During service you can rush in food for $${CFG.service.rush[0]}–${CFG.service.rush[1]}, or those guests leave unhappy.`
-      : `You're short on tables. During service you can borrow some from next door for $${CFG.service.borrow[0]}–${CFG.service.borrow[1]}, or those guests leave unhappy and cost you stars.`}${gMax - seat >= 4 ? ' Fewer ads might earn you more.' : ''}</span>`;
+  const seat = Math.min(tables + deliv, food), canAll = gMax <= seat, short = food < Math.min(gMax, tables + deliv) ? 'plates' : 'seats';
+  const range = (a, b) => (a === b ? `${b}` : `${a}–${b}`);
+  const base = range(Math.max(0, E0.min), E0.max), now = range(gMin, gMax);
+  const names = self.concat(rival.filter(id => id === 'poach')).map(cardName).join(' + ');
+  const verdict = canAll
+    ? `<span class="vd ok">${ART.icon('check', 16)} ${seat > gMax + 2 ? `Everyone gets served, with ${seat - gMax} seats and plates to spare. Spare food goes bad overnight.` : 'Your seats and plates cover everyone.'}</span>`
+    : `<span class="vd bad">${ART.icon('warn', 16)} ${f.sel.length && names ? `With ${esc(names)}, ` : ''}${plural(gMax - seat, 'guest')} won't have a ${short === 'plates' ? 'plate' : 'seat'}.${gMax - seat >= 4 ? ' Fewer ads might earn you more.' : ''}</span>`;
+  const hand = [...sh.self, ...sh.rival].map(id => adCard(id, o, { state: f.sel.includes(id) ? 'on' : A[id].price > left ? 'poor' : '' })).join('');
   const g = S.submitted[o] && S.got[o];
-  const label = f.sel.length ? (rival.length ? 'Hide my Tricks' : 'Hide my cards') : 'Skip ads today';
   return `<div class="game">
-    <section class="panel lift" aria-label="Today's ad cards" style="gap:18px">
-      ${titleHTML('Ads', `Buy cards that bring guests to you, or that make trouble for ${esc(nameOf(o))}. Your cards stay secret until service starts, and you only pay when they're revealed.`)}
-      <div class="adrow"><div class="hd"><span class="dot you"></span><h2>For your restaurant</h2><span>bring more guests to you</span></div><div class="ads">${sh.self.map(id => card(id, 'self')).join('')}</div></div>
-      <div class="adrow"><div class="hd"><span class="dot rival"></span><h2>Against ${esc(nameOf(o))}</h2><span>make their night harder</span></div><div class="ads">${sh.rival.map(id => card(id, 'rival')).join('')}</div></div>
-      <p class="hint">Every card can be bought once. You get a new set of cards each day.</p>
+    <section class="panel lift" aria-label="Today's ad cards" style="gap:16px">
+      ${titleHTML('Play your cards', `Tap to play face-down. ${esc(nameOf(o))} only sees the backs.`, '<span class="hint">New hand every day</span>')}
+      <div class="handrow"><span class="hd"><span class="dot you"></span>For your restaurant</span><span class="hd"><span class="dot rival"></span>Against ${esc(nameOf(o))}</span></div>
+      <div class="hand">${hand}</div>
+      <div class="kwlegend">${Object.keys(KW).map(kw => `<span>${kwChip(kw)} ${KW[kw][1]}</span>`).join('')}<span class="hint">Dashed gold edge = gamble · COUNTRY / CITY = only at that location. You pay when the cards flip.</span></div>
     </section>
     <aside class="stack">
-      <section class="panel"><h2>Tonight, with the cards you chose</h2>
-        <div class="tiles"><div class="tile"><span class="k">Guests</span><span class="v">${gMin === gMax ? gMax : `${gMin}–${gMax}`}</span><span class="s">${CFG.baseDemand + p.wom} regulars${gMax - (CFG.baseDemand + p.wom) ? ` ${gMax > CFG.baseDemand + p.wom ? '+' : '−'} ${Math.abs(gMax - (CFG.baseDemand + p.wom))}` : ''}</span></div>
-          <div class="tile ${!canAll && short === 'tables' ? 'bad' : ''}"><span class="k">Tables</span><span class="v">${tables}</span><span class="s">free tonight</span></div>
-          <div class="tile ${!canAll && short === 'food' ? 'bad' : ''}"><span class="k">Food</span><span class="v">${food}</span><span class="s">plates</span></div></div>
-        <div class="tile" style="gap:4px;padding:12px 14px">${verdict}</div>
-        <span class="hint">Not counted: tricks ${esc(nameOf(o))} might play on you. You'll see those when service starts.</span></section>
-      <section class="panel"><div class="lines"><div><span class="muted">${plural(f.sel.length, 'card')}</span><b>${usd(cost)}</b></div><div><span class="muted">Cash after they're revealed</span><b>${usd(left)}</b></div></div></section>
-      <section class="panel" style="grid-template-columns:auto 1fr;align-items:center"><span class="dot rival"></span><span style="font-size:13px;color:var(--ink2)">${g ? `<b style="color:var(--ink)">${esc(nameOf(o))} placed ${plural(g.nSelf + g.nRival, 'card')}:</b> ${g.nSelf} on their restaurant, ${g.nRival} on yours. It might be a bluff.` : `<b style="color:var(--ink)">${esc(nameOf(o))}</b> is choosing cards`}</span></section>
-      <button class="cta" data-act="commit">${label}<small>${esc(nameOf(o))} only sees how many, not which</small></button>
+      <section class="panel"><h2>Tonight, if you play these</h2>
+        <div class="lines"><div><span class="muted">Guests</span><b>${now !== base ? `${base} → ${now}` : now}</b></div><div class="${!canAll && short === 'seats' ? 'neg' : ''}"><span class="muted">Seats</span><b>${tables}${deliv ? ` + ${deliv} delivery` : ''}</b></div><div class="${!canAll && short === 'plates' ? 'neg' : ''}"><span class="muted">Plates</span><b>${food}</b></div></div>
+        ${verdict}
+        <span class="hint">Not counted: cards ${esc(nameOf(o))} might play on you. You'll see those when they flip.</span></section>
+      <section class="panel"><h2>Played face-down</h2>
+        <div class="backs">${f.sel.length ? f.sel.map((_, i) => cardBack(i)).join('') : '<span class="hint">No cards yet.</span>'}</div>
+        <div class="lines"><div><span class="muted">${esc(nameOf(o))} sees</span><b>${plural(f.sel.length, 'card')}</b></div><div><span class="muted">Cost at the flip</span><b>${usd(-cost)}</b></div></div></section>
+      <section class="panel" style="grid-template-columns:auto 1fr;align-items:center"><span class="dot rival"></span><span style="font-size:13px;color:var(--ink2)">${g ? `<b style="color:var(--ink)">${esc(nameOf(o))} played ${plural(g.nSelf + g.nRival, 'card')}:</b> ${g.nSelf} on their restaurant, ${g.nRival} on yours. It might be a bluff.` : `<b style="color:var(--ink)">${esc(nameOf(o))}</b> is choosing cards`}</span></section>
+      <button class="cta" data-act="commit">${f.sel.length ? `Lock in ${plural(f.sel.length, 'card')}` : 'Skip ads today'}<small>${esc(nameOf(o))} only sees how many, not which</small></button>
     </aside></div>`;
 }
 
