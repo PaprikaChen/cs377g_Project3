@@ -33,8 +33,11 @@ const ART = (() => {
   const chair = '<rect class="chair" x="-12" y="18" width="24" height="14" rx="7"/>';
   const dish = '<circle class="rim" cx="0" cy="-10" r="10"/><circle class="dish" cx="0" cy="-10" r="5"/>';
   const label = (t, cls = '') => `<rect class="tag-bg" x="-27" y="-19" width="54" height="18" rx="4"/><text class="tag ${cls}" x="0" y="-6">${t}</text>`;
-  function tile(k, x, y, s) {
-    const g = (cls, body) => `<g class="tbl ${cls}" transform="translate(${x} ${y}) scale(${s})"><rect class="top" x="-30" y="-32" width="60" height="44" rx="10"/>${body}</g>`;
+  function tile(k, x, y, s, o = {}) {
+    const g = (cls, body, attr = '') => `<g class="tbl ${cls}" transform="translate(${x} ${y}) scale(${s})"${attr}><rect class="top" x="-30" y="-32" width="60" height="44" rx="10"/>${body}</g>`;
+    const btn = (d, label) => ` data-act="inc" data-f="tables" data-d="${d}" role="button" tabindex="0" aria-label="${label}"`;
+    if (k === 'add') return g('add', '<text class="plus" x="0" y="0">+</text>', btn(1, `Add a table for $${o.addCost}`));
+    if (k === 'new' && o.edit) return g('new', chair + '<rect class="new-bg" x="-19" y="-52" width="38" height="18" rx="9"/><text class="new-t" x="0" y="-39">NEW</text>', btn(-1, 'Remove this new table'));
     switch (k) {
       case 'seat': return g('seat', dish + guest);
       case 'free': return g('free', chair);
@@ -68,7 +71,7 @@ const ART = (() => {
     out.push(`<text class="zone" x="116" y="30">${o.roomLabel || 'DINING ROOM'}</text>`);
     out.push('<path class="split" d="M690 10v312"/>');
     const cx = [162, 277, 392, 507, 622], cy = [66, 170, 274];
-    (o.own || []).slice(0, 15).forEach((k, i) => out.push(tile(k, cx[i % 5], cy[Math.floor(i / 5)], 0.85)));
+    (o.own || []).slice(0, 15).forEach((k, i) => out.push(tile(k, cx[i % 5], cy[Math.floor(i / 5)], 0.85, o)));
     if (o.roomNote) out.push(`<text class="note" x="392" y="${(o.own || []).length > 10 ? 300 : (o.own || []).length > 5 ? 280 : 176}">${o.roomNote}</text>`);
     // kitchen: one plate per food
     const food = Math.max(0, o.food || 0), cap = 40, shown = Math.min(food, food > cap ? cap - 1 : cap);

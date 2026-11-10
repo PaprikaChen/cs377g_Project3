@@ -475,7 +475,7 @@ function renderBar() {
   if (app.mode === 'online') tools = `<span>Room <b style="color:var(--ink);letter-spacing:.06em">${esc(app.code)}</b> · ${seatTag(app.me)}</span><button class="btn" data-act="copy" aria-label="Copy room code">${ART.icon('copy', 14)}</button>`;
   if (app.mode === 'local') tools = `<span>Practice</span>${['p1', 'p2'].map(s => `<button class="btn" data-act="view" data-seat="${s}" aria-pressed="${app.view === s}" style="${app.view === s ? 'border-color:var(--ink)' : ''}">Player ${s === 'p1' ? 1 : 2}${S && S.waiting[s] ? ' •' : ''}</button>`).join('')}`;
   tools += `<button class="btn" data-act="theme" aria-label="Switch to ${isDark() ? 'light' : 'dark'} theme" title="Switch to ${isDark() ? 'light' : 'dark'} theme">${ART.icon(isDark() ? 'sun' : 'moon', 16)}</button>`;
-  tools += `<button class="btn help" data-act="howto" aria-label="How to play" title="How to play">${app.mode ? '?' : 'How to play'}</button>`;
+  tools += `<button class="btn${app.mode ? ' help' : ''}" data-act="howto" aria-label="How to play" title="How to play">${app.mode ? '?' : 'How to play'}</button>`;
   if (app.mode) tools += `<button class="btn" data-act="leave">${app.mode === 'local' ? 'Quit' : 'Leave'}</button>`;
   bar.innerHTML = `<span class="logo">${ART.badge('hd')}</span><div class="mid">${mid}</div>${pills ? `<div class="pills">${pills}</div>` : ''}<div class="tools">${tools}</div>`;
 }
@@ -495,7 +495,7 @@ function lobbyHTML() {
         <p>Open a restaurant with $${CFG.startCash}, grab food before your old partner does, and use ads to pull guests in, or to trip them up. The restaurant with the most cash and best rating after ${CFG.rounds} days wins.</p>
       </div>
       ${!app.dbMsg ? '' : app.dbMsg === 'Connecting…' ? '<p class="wait"><span class="dot round you"></span>Connecting to the game server…</p>' : `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.dbMsg)}</span></div>`}
-      <div class="field"><label for="nick-in">Your name <span>· your rival sees this</span></label>
+      <div class="field"><label for="nick-in">Your name <span>· your old partner sees this</span></label>
         <input type="text" id="nick-in" maxlength="12" autocomplete="nickname" placeholder="e.g. Sam" value="${esc(app.nick)}"></div>
       ${app.err ? `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.err)}</span></div>` : ''}
       <div class="choices">
@@ -670,94 +670,118 @@ function pickHTML(s) {
 }
 
 // ---------- build ----------
-function guestsText(E) {
-  if (E.min === E.max) return { v: String(E.min), s: 'your regulars, plus anyone your ads bring' };
-  return { v: `${Math.max(0, E.min)} to ${E.max}`, s: `usually about ${Math.round(E.total)}. Not every guest is certain.` };
+// Day 1 opens with a gift screen, event days with the morning card, then the tables (one job per screen).
+function morningLine(s) {
+  const S = app.S, p = S.players[s], m = S.morning[s] || {}, L = CFG.loc[p.loc];
+  const prev = p.history[p.history.length - 1], fight = prev && prev.ledger.find(x => /^Fight broke/.test(x.label));
+  const bits = S.round === 1 ? [`opened: −$${L.open}`, `rent −$${L.rent}`] : [`rent −$${L.rent}`];
+  if (m.robbed) bits.push(`<b class="neg">a thief took ${usd(m.robbed)}</b>`);
+  if (m.arrived) bits.push(`${plural(m.arrived, 'plate')} from yesterday's Regular order arrived`);
+  if (fight) bits.push(`<b class="neg">${fight.label.replace('Fight broke', '').trim()} broken in yesterday's fight</b>`);
+  if (S.round === CFG.rounds - 1) bits.push('tomorrow the Market only sells Express food');
+  return `<span class="morning">${S.round === 1 ? 'Day 1' : 'This morning'} · ${bits.join(' · ')}</span>`;
+}
+function giftHTML(s) {
+  const o = other(s);
+  return `<section class="gift" aria-labelledby="gift-t"><span class="eyebrow">Day 1 · before you open</span><span class="gift-badge">${ART.badge('gf')}</span>
+    <h1 id="gift-t" class="gold">A gift from the Golden Spoon!</h1>
+    <div class="plates" aria-hidden="true">${Array.from({ length: CFG.freeFood }, () => ART.plate(34)).join('')}</div>
+    <p class="big1">${CFG.freeFood} free plates of food for your first night.</p>
+    <p>From tomorrow, the food is on you: you and ${esc(nameOf(o))} race for it at the Market. 🛒</p>
+    <button class="cta inline" data-act="stage" data-v="gift">Set up my restaurant →</button></section>`;
+}
+function offerHTML(s, f) {
+  const S = app.S, p = S.players[s], e = S.events[s];
+  const opt = (v, t, lines) => `<button type="button" class="choice lg ${f.choice === v ? 'on' : ''}" role="radio" aria-checked="${f.choice === v}" data-act="choose" data-c="${v}"><span class="rd"></span><span><b>${t}</b>${lines.map(l => `<span class="d">${l}</span>`).join('')}</span></button>`;
+  let h, sub, opts, go;
+  if (e.type === 'shady') {
+    const active = p.shadyFrom !== null;
+    h = active ? `The stranger is back with another $${CFG.shady.cash}` : `A stranger offers you $${CFG.shady.cash} for a shady deal`;
+    sub = active ? `You already took a deal on day ${p.shadyFrom}, so the inspector is already watching you (1 in 6 each day). Taking this one doesn't change that chance.`
+      : 'Easy money. But someone might find out.';
+    opts = opt('accept', `Take the $${CFG.shady.cash}`, [`<b class="pos">+$${CFG.shady.cash} now</b>`, `Every day after: 1 in 6 chance an inspector catches you: −$${CFG.shady.fine} and −1 ★`])
+      + opt('decline', 'Say no', ['Nothing happens']);
+    go = f.choice === 'accept' ? 'Take the money · set up →' : 'Say no · set up →';
+  } else {
+    const t = p.tables, few = t < CFG.noshow.tables, n = few ? 'table' : `${CFG.noshow.tables} tables`;
+    h = `A party wants ${few ? 'to book tables' : `${CFG.noshow.tables} tables`} tonight`;
+    sub = `${t === 0 ? "You have no tables yet, so keeping tables for them won't change anything unless you buy some. " : ''}They might not turn up. It's 50/50, and you'll only find out during service.`;
+    opts = opt('hold', `Keep ${few ? 'the table' : `${CFG.noshow.tables} tables`} for them`, [`If they come: <b class="pos">+$${CFG.noshow.pay}</b>`, `If not: ${few ? 'the table sits' : `${CFG.noshow.tables} tables sit`} empty all night`])
+      + opt('release', 'Say no', ['Walk-ins can use those tables', 'If the party comes anyway: <b class="neg">−1 ★</b>']);
+    go = f.choice === 'hold' ? 'Keep the tables · set up →' : 'Use the tables · set up →';
+  }
+  return `<section class="panel lift offer" aria-labelledby="offer-t"><span class="offer-tag">${ART.icon('lock', 13)}Only you can see this</span>${morningLine(s)}
+    <div style="display:grid;gap:6px"><h1 id="offer-t">${h}</h1><span class="sub">${sub}</span></div>
+    <div role="radiogroup" class="offer-opts">${opts}</div>
+    ${f.choice ? `<button class="cta" data-act="stage" data-v="offer">${go}</button>` : '<div class="center-note">Pick one to continue<span>It\'s a yes or no. Neither is wrong.</span></div>'}</section>`;
 }
 function buildHTML(s) {
-  const S = app.S, p = S.players[s], o = other(s), k = S.waiting[s], e = S.events[s], m = S.morning[s] || {}, L = CFG.loc[p.loc];
-  const last = S.round === CFG.rounds;
-  // morning news
-  const prev = p.history[p.history.length - 1];
-  const fight = prev && prev.ledger.find(x => /^Fight broke/.test(x.label));
-  const chips = S.round === 1
-    ? [`Opened your ${L.name} restaurant: $${L.open}`, `Paid rent: $${L.rent}`]
-    : [`Paid rent: $${L.rent}`, ...(m.arrived ? [`${plural(m.arrived, 'food')} from yesterday's Regular order arrived`] : [])];
-  if (S.round === CFG.rounds - 1) chips.push('Tomorrow the Market only sells Express food');
-  const morning = `${m.robbed ? `<div class="callout bad">${ART.icon('warn', 22)}<span><b>A thief broke in last night and took ${usd(m.robbed)}</b>Thieves take half your cash, but never more than $${CFG.robbery.cap}. You now have ${usd(p.cash)}.</span></div>` : ''}
-    <div class="chips"><span class="lbl">${S.round === 1 ? 'Today:' : 'This morning:'}</span>${fight ? `<span class="c bad">${fight.label.replace('Fight broke', '').trim()} broken in yesterday's fight</span>` : ''}${chips.map(c => `<span class="c">${c}</span>`).join('')}</div>`;
-
+  const S = app.S, p = S.players[s], o = other(s), k = S.waiting[s], e = S.events[s], L = CFG.loc[p.loc], M = CFG.market;
+  const last = S.round === CFG.rounds, day1 = S.round === 1 && CFG.freeFood;
   if (!k) {
     const g = S.got[s] || {}, bits = [];
     if (e.type === 'shady' && g.choice) bits.push(g.choice === 'accept' ? 'take the shady deal' : 'say no to the shady deal');
     if (e.type === 'noshow' && g.choice) bits.push(g.choice === 'hold' ? `keep ${CFG.noshow.tables} tables for the booking` : 'use the booked tables for walk-ins');
-    bits.push(g.tables ? `buy ${plural(g.tables, 'table')} ($${g.tables * CFG.tableCost})` : 'no new tables');
-    return statusHTML(s) + `<div class="game"><section class="panel lift">${titleHTML('Build', 'Get your restaurant ready before the doors open.')}${morning}
-      ${floorBuild(p, 0, p.held)}</section><aside class="stack">${waitCard(o, `You chose: ${bits.join(', ')}.`, `<span class="hint">The Market opens as soon as they're done. It lasts ${CFG.market.time} seconds, and the fastest clicks get the food.</span>`)}</aside></div>`;
+    bits.push(g.tables ? `add ${plural(g.tables, 'table')} ($${g.tables * CFG.tableCost})` : 'no new tables');
+    return `<div class="game"><section class="panel lift">${titleHTML('Your tables', '')}${morningLine(s)}${floorBuild(p, 0, p.held)}</section>
+      <aside class="stack">${waitCard(o, `You chose to ${bits.join(', ')}.`, `<span class="hint">${day1 ? 'Ads come next.' : `The Market opens as soon as they're done. It lasts ${M.time} seconds, and the fastest clicks get the food.`}</span>`)}</aside></div>`;
   }
-  const f = F({ tables: 0, choice: null, loan: false }), needChoice = e && e.type !== 'quiet';
+  const f = F({ tables: 0, choice: null, loan: false, stage: '' }), needChoice = e && e.type !== 'quiet';
+  if (day1 && !f.gift) return giftHTML(s);
+  if (needChoice && !f.offer) return `<div class="solo">${offerHTML(s, f)}</div>`;
   const loanOn = CFG.loan.enabled && !p.loan; // loans are off in CFG for now; this brings the option back if the team turns them on
   const cash = p.cash + (f.choice === 'accept' ? CFG.shady.cash : 0) + (loanOn && f.loan ? CFG.loan.amount : 0);
   const room = CFG.maxTables - p.tables, afford = Math.floor(Math.max(0, cash) / CFG.tableCost), maxT = Math.max(0, Math.min(room, afford));
   if (f.tables > maxT) f.tables = maxT;
   const total = p.tables + f.tables, held = f.choice === 'hold' ? Math.min(CFG.noshow.tables, total) : 0;
-  const E = expectedDemand({ ...p, held, tables: total });
-  const gt = guestsText(E), walkins = total - held;
-
-  // the secret offer
-  const opt = (v, t, d) => `<button type="button" class="choice ${f.choice === v ? 'on' : ''}" role="radio" aria-checked="${f.choice === v}" data-act="choose" data-c="${v}"><span class="rd"></span><span><b>${t}</b><span class="d">${d}</span></span></button>`;
-  let offer = '';
-  if (e.type === 'shady') {
-    const active = p.shadyFrom !== null;
-    offer = `<section class="panel edge"><span class="offer-tag">${ART.icon('lock', 13)}Only you can see this</span>
-      <div style="display:grid;gap:4px"><h2 style="font-family:var(--display);font-size:18px">${active ? `The stranger is back with another $${CFG.shady.cash}` : `A stranger offers you $${CFG.shady.cash} for a shady deal`}</h2>
-      <span style="font-size:14px;color:var(--ink2);line-height:1.45">${active ? `You already took a deal on day ${p.shadyFrom}, so the inspector is already watching you (1 in 6 each day). Taking this one doesn't change that chance.`
-        : `Easy money. But on every day after this, there's a 1 in 6 chance a health inspector catches you. If they do, you pay $${CFG.shady.fine} and lose a star.`}</span></div>
-      <div role="radiogroup" style="display:grid;gap:8px">${opt('accept', `Take the $${CFG.shady.cash}`, 'and hope nobody finds out')}${opt('decline', 'Say no', 'nothing happens')}</div></section>`;
-  } else if (e.type === 'noshow') {
-    const t = p.tables, few = t < CFG.noshow.tables;
-    offer = `<section class="panel edge"><span class="offer-tag">${ART.icon('lock', 13)}Only you can see this</span>
-      <div style="display:grid;gap:4px"><h2 style="font-family:var(--display);font-size:18px">A party wants to book ${few ? 'tables' : `${CFG.noshow.tables} tables`} tonight</h2>
-      <span style="font-size:14px;color:var(--ink2);line-height:1.45">${t === 0 ? "You have no tables yet, so keeping tables for them won't change anything unless you buy some. " : few ? 'You only have 1 table. Keeping it for them means no walk-in guest can sit there. ' : ''}They might not turn up. It's 50/50, and you'll only find out during service.</span></div>
-      <div role="radiogroup" style="display:grid;gap:8px">${opt('hold', `Keep the ${few ? 'table' : `${CFG.noshow.tables} tables`} for them`, `If they come, they pay you $${CFG.noshow.pay}. If not, the ${few ? 'table sits' : 'tables sit'} empty all night.`)}
-      ${opt('release', 'Say no and use the tables', 'Walk-in guests can sit there. But if the party turns up with nowhere to sit, you lose a star.')}</div></section>`;
-  } else {
-    offer = `<section class="panel"><b style="font-size:14px">No offers today</b><span class="sub">Just decide how many tables you want.</span></section>`;
-    if (p.shadyFrom !== null) offer += `<section class="panel"><b style="font-size:14px">You took the shady deal on day ${p.shadyFrom}</b><span class="sub">An inspector might visit during service: a 1 in 6 chance each day. If they catch you, it's $${CFG.shady.fine} and a star.</span></section>`;
-  }
-  // tables
-  let tables;
-  if (room <= 0) tables = `<section class="panel"><h2 style="font-family:var(--display);font-size:18px">Your dining room is full</h2><span class="sub">${CFG.maxTables} tables is the most you can have. If you run out of seats tonight, you can still borrow tables from next door.</span></section>`;
-  else if (afford <= 0) tables = `<section class="panel"><h2 style="font-family:var(--display);font-size:18px">No new tables today</h2><span class="sub">${cash <= 0 ? 'You have no cash left.' : `A table costs $${CFG.tableCost} and you have ${usd(cash)}. Keep it for food at the Market.`}</span></section>`;
-  else tables = `<section class="panel"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div style="display:grid;gap:2px"><h2 style="font-family:var(--display);font-size:18px">Buy more tables?</h2><span class="sub">$${CFG.tableCost} each. You keep them for the rest of the game.</span></div>
-      <div class="stepper" role="group" aria-label="New tables">${f.tables > 0 ? `<button type="button" data-act="inc" data-f="tables" data-d="-1" aria-label="One fewer table">−</button>` : '<span class="off" aria-hidden="true">−</span>'}<output>${f.tables}</output>${f.tables < maxT ? `<button type="button" data-act="inc" data-f="tables" data-d="1" aria-label="One more table">+</button>` : '<span class="off" aria-hidden="true">+</span>'}</div></div>
-      ${f.tables >= maxT && maxT < room ? `<span class="hint">That's all your cash allows today: ${plural(maxT, 'table')} at $${CFG.tableCost} each.</span>` : ''}
-      <div class="lines"><div><span class="muted">${plural(f.tables, 'new table')}</span><b>${usd(-f.tables * CFG.tableCost)}</b></div><div><span class="muted">Cash left for the market and ads</span><b>${usd(cash - f.tables * CFG.tableCost)}</b></div></div>
-      <p class="hint">${last ? '<b style="color:var(--ink)">Last day.</b> Tables don\'t add to your final score. Only buy what you\'ll use tonight. ' : ''}Careful: if more than half your tables are empty at closing, you might lose a star. You can have up to ${CFG.maxTables} tables.</p></section>`;
-  const loanCard = !loanOn ? '' : `<section class="panel"><h2 style="font-family:var(--display);font-size:18px">Take a loan?</h2><span class="sub">Get $${CFG.loan.amount} now and pay back $${CFG.loan.repay} at the end of the game. Once per game.</span>
+  const E = expectedDemand({ ...p, held, tables: total }), seats = total - held, guess = Math.round(E.total);
+  const gv = E.min === E.max ? `~${E.min}` : `${Math.max(0, E.min)}–${E.max}`;
+  // forecast verdict (P5: preview the outcome)
+  let verdict;
+  if (seats < guess) verdict = `<span class="vd bad">${ART.icon('warn', 16)} Too few tables: about ${guess - seats} guests won't get a seat.</span>`;
+  else if (seats - guess > seats * CFG.emptyTables.share) verdict = `<span class="vd warn">${ART.icon('warn', 16)} Lots of seats: if over half sit empty at closing, you can lose a star. Ads can fill them.</span>`;
+  else verdict = `<span class="vd ok">${ART.icon('check', 16)} About right. Everyone expected gets a seat${held ? `, plus ${held} for the party` : ''}.</span>`;
+  // money for today, and what it's still needed for
+  const spend = f.tables * CFG.tableCost, after = cash - spend;
+  const lo = Math.max(0, Math.min(seats, Math.max(0, E.min)) - p.ingr), hi = Math.max(0, Math.min(seats, E.max) - p.ingr);
+  const pLo = last ? M.exp.price : M.reg.price, pHi = M.exp.price;
+  const money = day1
+    ? `<div><span class="muted">Left for Ads (next step)</span><b>${usd(after)}</b></div></div><span class="hint">Ads bring extra guests. Tomorrow you will also need money for food.</span>`
+    : `<div><span class="muted">Food at the Market (next)</span><b>${hi ? `~$${lo * pLo}–${hi * pHi}` : '$0'}</b></div><div><span class="muted">Ads after that</span><b>the rest</b></div></div>
+       <span class="hint">${hi ? `${lo === hi ? hi : `${lo}–${hi}`} plates at $${pLo}${pLo === pHi ? '' : `–${pHi}`} each${p.ingr ? ` (you already have ${p.ingr})` : ''}. Leftovers go bad overnight.` : 'You already have enough food for the guests you expect.'}</span>`;
+  const loanCard = !loanOn ? '' : `<section class="panel"><h2>Take a loan?</h2><span class="sub">Get $${CFG.loan.amount} now and pay back $${CFG.loan.repay} at the end of the game. Once per game.</span>
     <div role="radiogroup" style="display:grid;gap:8px"><button type="button" class="choice ${f.loan ? 'on' : ''}" role="radio" aria-checked="${!!f.loan}" data-act="loan" data-v="1"><span class="rd"></span><span><b>Take $${CFG.loan.amount}</b><span class="d">You'll owe $${CFG.loan.repay} at the end.</span></span></button>
     <button type="button" class="choice ${f.loan ? '' : 'on'}" role="radio" aria-checked="${!f.loan}" data-act="loan" data-v="0"><span class="rd"></span><span><b>No loan</b></span></button></div></section>`;
-  const done = needChoice && !f.choice
-    ? `<div class="center-note">Answer the offer above to continue<span>It's a yes or no. Neither is wrong.</span></div>`
-    : `<button class="cta" data-act="invest">Done, go to the Market →</button><span class="hint" style="text-align:center">The Market opens when you're both done. It lasts ${CFG.market.time} seconds, so be ready.</span>`;
-  return statusHTML(s) + `<div class="game">
-    <section class="panel lift">${titleHTML('Build', 'Get your restaurant ready before the doors open. This is how it will look tonight.')}${morning}
-      ${floorBuild(p, f.tables, held)}
-      <div class="tiles"><div class="tile"><span class="k">Guests expected tonight</span><span class="v">${gt.v}</span><span class="s">${gt.s}</span></div>
-        <div class="tile"><span class="k">Tables for walk-in guests</span><span class="v">${walkins}</span><span class="s">${held ? `${total} tables, minus ${held} held for the booking` : 'all your tables'}</span></div>
-        <div class="tile"><span class="k">Food so far</span><span class="v">${p.ingr}</span><span class="s">${p.ingr ? 'each guest needs 1, so you\'ll likely need more' : 'none yet: you\'ll buy it at the Market'}</span></div></div>
+  const sub = room <= 0 ? `Your dining room is full: ${CFG.maxTables} tables is the most you can have.`
+    : afford <= 0 ? `A table costs $${CFG.tableCost} and you have ${usd(cash)}. Keep it for ${day1 ? 'ads' : 'food at the Market'}.`
+    : `Tap a <b class="plus">+</b> to add a table for $${CFG.tableCost}. You keep it for the rest of the game.${last ? ' Last day: tables don\'t add to your score.' : ''}`;
+  const kept = needChoice ? `<span class="hint">${e.type === 'shady' ? (f.choice === 'accept' ? `You took the $${CFG.shady.cash}.` : 'You said no to the deal.') : f.choice === 'hold' ? `${CFG.noshow.tables} tables are held for the party (only you can see this).` : 'Walk-ins can use every table.'} <button class="linkish" data-act="stage" data-v="offer-back">Change</button></span>` : '';
+  return `<div class="game">
+    <section class="panel lift">${titleHTML('Set up your tables', sub)}${morningLine(s)}
+      ${floorBuild(p, f.tables, held, Math.min(maxT - f.tables, CFG.maxTables - total, 5), day1)}
+      ${day1 ? `<div class="callout food">${ART.plate(26)}<span><b>${CFG.freeFood} free plates tonight.</b>Leftovers go bad at closing. From tomorrow you buy food at the Market.</span></div>` : ''}${kept}
     </section>
-    <aside class="stack">${offer}${loanCard}${tables}${done}</aside></div>`;
+    <aside class="stack">
+      <section class="panel"><h2>Tonight's forecast</h2>
+        <div class="fc"><span class="big">${gv}</span><span class="muted">${held ? 'walk-ins' : 'guests'} · <b style="color:var(--ink)">${plural(seats, 'seat')}${held ? ' free' : ''}</b></span></div>
+        ${verdict}
+        <span class="hint">Too few tables: guests leave and you can lose a star. Too many: if over half sit empty at closing, you can lose a star too.</span></section>
+      <section class="panel"><h2>Your $ for today</h2><div class="lines">
+        <div><span class="muted">Cash now</span><b>${usd(cash)}</b></div><div><span class="muted">New tables</span><b>${usd(-spend)}</b></div>${money}</section>
+      ${loanCard}
+      <button class="cta" data-act="invest">${day1 ? 'Done · choose your ads →' : 'Done · go shopping →'}</button>
+    </aside></div>`;
 }
-function floorBuild(p, add, held) {
+function floorBuild(p, add, held, plus = 0, day1 = false) {
   const own = [...Array(p.tables).fill('free'), ...Array(add).fill('new')];
   let h = held;
   for (let i = p.tables - 1; i >= 0 && h > 0; i--, h--) own[i] = 'reserved';
   for (let i = own.length - 1; i >= 0 && h > 0; i--) if (own[i] === 'new') { own[i] = 'reserved'; h--; }
   const total = own.length;
-  return ART.floor({ own, food: p.ingr, roomLabel: `DINING ROOM · ${total} ${total === 1 ? 'TABLE' : 'TABLES'}`,
-    roomNote: total === 0 ? 'Your dining room is empty. No guest can sit down tonight.' : total < CFG.maxTables ? `Room for ${CFG.maxTables - total} more tables` : '',
-    kitchenNote: ["You'll buy more", 'at the Market next'], aria: `Your dining room tonight: ${total} tables, ${held} held for a booking, ${p.ingr} food in the kitchen` });
+  own.push(...Array(Math.max(0, plus)).fill('add'));
+  return ART.floor({ own, food: p.ingr, edit: plus > 0 || add > 0, addCost: CFG.tableCost, roomLabel: `DINING ROOM · ${total} ${total === 1 ? 'TABLE' : 'TABLES'}`,
+    roomNote: total === 0 && !plus ? 'Your dining room is empty. No guest can sit down tonight.' : '',
+    kitchenNote: day1 ? ['Free from the', 'Golden Spoon'] : ["You'll buy more", 'at the Market next'], aria: `Your dining room tonight: ${total} tables, ${held} held for a booking, ${p.ingr} food in the kitchen` });
 }
 
 // ---------- market ----------
@@ -1245,8 +1269,9 @@ document.addEventListener('click', e => {
       try { navigator.clipboard.writeText(app.code).then(done, () => toast(`Room code: ${app.code}`)); } catch (err) { toast(`Room code: ${app.code}`); }
       return;
     }
-    case 'inc': { const f = F({}); f[b.dataset.f] = (f[b.dataset.f] || 0) + Number(b.dataset.d); return render(); }
+    case 'inc': { const f = F({}); f[b.dataset.f] = Math.max(0, (f[b.dataset.f] || 0) + Number(b.dataset.d)); return render(); }
     case 'choose': { const f = F({}); f.choice = b.dataset.c; return render(); }
+    case 'stage': { const f = F({}), v = b.dataset.v; if (v === 'gift') f.gift = true; else if (v === 'offer') f.offer = true; else if (v === 'offer-back') f.offer = false; return render(); }
     case 'loan': { const f = F({}); f.loan = b.dataset.v === '1'; return render(); }
     case 'ad': {
       const f = F({ sel: [] }), id = b.dataset.id;
@@ -1277,6 +1302,7 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.target.matches && e.target.matches('input,textarea')) return;
   if (app.howto && e.key === 'Escape') { app.howto = null; return render(); }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('g[role=button]')) { e.preventDefault(); e.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); return; }
   const S = app.S; if (!S || S.phase !== 'service') return;
   const btn = sel => { const el = document.querySelector(sel); if (el) { e.preventDefault(); el.click(); } };
   const key = e.key.toLowerCase();
