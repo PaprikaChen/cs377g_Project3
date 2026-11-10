@@ -8,6 +8,8 @@ const CFG = {
     city:    { name: 'City', tag: '$$$', open: 35, rent: 12, tables: 4, price: 12 }
   },
   baseDemand: 6, tableCost: 6, maxTables: 14,
+  // Day 1 has no Market: the Golden Spoon gives each restaurant this much free food instead (most of it gets wasted: that's the lesson)
+  freeFood: 12,
   // Stars: each star above 3 adds perStar maybe-customers (each comes with `chance`);
   //        each star below 3 puts perStar regulars at risk (each stays away with `loseChance`)
   rep: { perStar: 2, chance: 0.5, loseChance: 0.5 },
@@ -150,6 +152,7 @@ function startRound(S) {
     money(p, 'Rent', -L.rent);
     p.ingr = p.pending; p.pending = 0;
     if (m.arrived) note(p, `Regular delivery arrived ×${m.arrived}`);
+    if (S.round === 1 && CFG.freeFood) { p.ingr += CFG.freeFood; m.free = CFG.freeFood; note(p, `Free food from the Golden Spoon ×${CFG.freeFood}`); }
     if (p.cash < 0 && CFG.loan.enabled && !p.loan) { p.loan = true; money(p, 'Forced loan', CFG.loan.amount); }
     if (p.cash < 0) p.bankrupt = true;
     S.morning[s] = m;
@@ -427,7 +430,10 @@ function apply(S, got) {
         const t = Math.min(intIn(a.tables, 0, room), Math.floor(Math.max(0, p.cash) / CFG.tableCost));
         if (t) { money(p, `New tables ×${t}`, -t * CFG.tableCost); p.tables += t; }
       }
-      startMarket(S); break;
+      // Day 1 skips the Market (the free food is already in the kitchen)
+      if (r === 1 && CFG.freeFood) { for (const s of SEATS) S.shops[s] = shopFor(S, s); S.phase = 'commit'; }
+      else startMarket(S);
+      break;
     }
     case 'market': {
       // Who got which item was settled live (first click wins). If both logs somehow claim one item, P1 keeps it.

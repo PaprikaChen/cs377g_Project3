@@ -1,4 +1,4 @@
-/* Restaurant Rivals · UI v3 ("minimal premium"). Colours are tokens with a light and a dark theme. */
+/* Spoon Fight · UI v4 (based on v3 ("minimal premium"). Colours are tokens with a light and a dark theme. */
 :root{
   --bg:#F4F4F5; --surface:#FFFFFF; --sunk:#FAFAFA; --ink:#09090B; --ink2:#3F3F46; --muted:#52525B; --muted2:#71717A; --faint:#A1A1AA;
   --line:#E4E4E7; --line2:#F4F4F5; --ring:rgba(9,9,11,.06); --table:#A1A1AA;
@@ -52,13 +52,30 @@ button{font:inherit;color:inherit}
 .gold.sm{-webkit-text-stroke:1.5px var(--gold-ink);filter:drop-shadow(0 2px 0 var(--gold-ink))}
 
 /* ---------- header ---------- */
-.bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px}
-.bar .logo{display:block;height:40px;width:auto;border-radius:9px;box-shadow:0 0 0 1px var(--ring)}
-.bar .mid{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
+.bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:18px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.bar .logo{display:block;width:62px;height:50px} .bar .logo .badge{width:100%;height:100%;display:block}
+.bar .mid{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 .bar .mid .day{font-size:13px;color:var(--muted)} .bar .mid .day b{color:var(--ink)}
 .bar .tools{display:flex;justify-content:flex-end;align-items:center;gap:6px;flex-wrap:nowrap;font-size:13px;color:var(--muted2)}
 .bar .tools>span{margin-right:4px;white-space:nowrap}
-@media (max-width:900px){.bar{grid-template-columns:1fr auto}.bar .mid{grid-column:1/-1;order:3}}
+@media (max-width:1100px){.bar{grid-template-columns:auto 1fr auto}.bar .mid{grid-column:1/-1;order:4}.bar .pills{order:3;grid-column:1/-1}}
+/* the day's steps as one progress bar */
+.pgbar{display:grid;gap:6px;width:min(440px,100%)}
+.pgbar .ph{display:flex;justify-content:space-between;align-items:baseline;gap:12px} .pgbar .ph .gold{font-size:20px} .pgbar .ph b{font-size:14px}
+.pgbar .track{position:relative;height:12px;border-radius:6px;background:var(--line);overflow:hidden}
+.pgbar .track i{display:block;height:100%;background:linear-gradient(90deg,var(--gold3),var(--gold2));border-radius:6px 0 0 6px}
+.pgbar .track s{position:absolute;top:0;width:3px;height:100%;background:var(--bg)}
+.pgbar .lbls{display:flex} .pgbar .lbls span{flex:1;text-align:center;font-size:11px;font-weight:600;color:var(--faint)}
+.pgbar .lbls span.done{color:var(--muted2)} .pgbar .lbls span.on{color:var(--gold-ink);font-weight:800}
+:root[data-theme="dark"] .pgbar .lbls span.on{color:var(--gold2)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .pgbar .lbls span.on{color:var(--gold2)}}
+.pills{display:flex;gap:10px;flex-wrap:wrap}
+.pill{display:flex;align-items:center;gap:10px;height:48px;padding:0 16px;border-radius:16px;font-size:14px}
+.pill b{font-weight:700} .pill .num{font-size:20px} .pill .st{font-size:12px}
+.pill.you{background:var(--you-soft);box-shadow:inset 0 0 0 1px var(--you-line)} .pill.you b{color:var(--you-text)}
+.pill.rival{background:var(--rival-soft);box-shadow:inset 0 0 0 1px var(--rival-line)} .pill.rival b,.pill.rival .st{color:var(--rival-text)} .pill.rival .num{font-size:17px}
+.ministars{display:inline-flex;gap:1px;font-size:14px;line-height:1;font-style:normal} .ministars i{font-style:normal;color:var(--line)} .ministars i.on{color:var(--gold3)}
+.btn.help{width:40px;height:40px;padding:0;font-size:16px;font-weight:700}
 .progress{display:flex;align-items:center;list-style:none;margin:0;padding:0;font-size:12px;color:var(--faint);flex-wrap:wrap;justify-content:center}
 .progress li{display:flex;align-items:center;gap:6px}
 .progress li .pd{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--line)}
@@ -179,7 +196,9 @@ kbd{font:600 11px/1 var(--body);padding:3px 6px;border-radius:5px;background:rgb
 .vs .faint{color:#A1A1AA}
 .pitch{display:grid;gap:22px}
 .pitch .eyebrow{font-size:13px;font-weight:600;color:var(--muted)}
-.headline{font-family:var(--display);font-size:50px;line-height:1.08;font-weight:800;letter-spacing:-.04em;display:grid;gap:4px}
+.headline{font-family:var(--display);font-size:44px;line-height:1.08;font-weight:800;letter-spacing:-.04em;display:grid;gap:8px}
+.headline .sub2{font-size:24px;font-weight:700;color:var(--ink2);letter-spacing:-.02em}
+.landing-badge{display:block;width:160px} .landing-badge .badge{width:100%;height:auto;display:block}
 .headline>span{display:flex;align-items:baseline;gap:14px}
 .headline .gold{font-size:66px;-webkit-text-stroke:2.5px var(--gold-ink);filter:drop-shadow(0 4px 0 var(--gold-ink))}
 @media (max-width:700px){.headline{font-size:36px}.headline .gold{font-size:46px}}
@@ -232,8 +251,17 @@ input[type=text]{font:inherit;font-size:16px;padding:12px 14px;border-radius:12p
 .acc-b thead th{border-top:0;color:var(--ink)}
 
 /* ---------- intro + pick ---------- */
-.intro{display:grid;justify-items:center;text-align:center;gap:18px;padding:24px 8px}
-.intro img{width:min(560px,100%);border-radius:24px;box-shadow:0 0 0 1px var(--ring)}
+.intro{position:relative;display:grid;justify-items:center;text-align:center;gap:20px;padding:40px 16px;border-radius:28px;background:var(--hero);color:#fff}
+.intro .skip{position:absolute;top:16px;right:16px}
+.spic{display:grid;justify-items:center;gap:14px;min-height:220px;align-content:center}
+.spic .sign{font-family:var(--fun);font-size:26px;padding:8px 18px;border-radius:10px;background:var(--red1);color:#fff;box-shadow:0 4px 0 var(--red3);letter-spacing:.04em}
+.spic .duo{display:flex;align-items:center;gap:22px} .spic .duo i{font-style:normal;font-size:84px;line-height:1;display:grid;justify-items:center;gap:6px;padding:14px;border-radius:24px}
+.spic .duo i.you{background:#1B2347} .spic .duo i.rival{background:#3A1527} .spic .duo small{font:800 12px var(--body);letter-spacing:.08em}
+.spic .duo .gap{font-size:28px;color:#71717A;letter-spacing:.2em} .spic .duo .gold{font-size:56px}
+.spic .paper{display:grid;gap:4px;padding:18px 26px;background:#F4F1E8;color:#09090B;border-radius:6px;transform:rotate(-3deg);font-family:var(--display)}
+.spic .paper b{font-size:22px;letter-spacing:.06em} .spic .paper .one{color:var(--red1);font-size:20px}
+.spic .prize{display:grid;justify-items:center;gap:6px} .spic .prize .cup{font-size:96px;line-height:1} .spic .prize b{font-family:var(--fun);font-size:30px;color:var(--gold2)} .spic .prize span{font-size:13px;font-weight:700;letter-spacing:.08em;color:#D4D4D8}
+.intro .dots i{background:#3F3F46} .intro .dots i.on{background:#fff}
 .intro p{font-family:var(--display);font-size:30px;font-weight:800;letter-spacing:-.03em;max-width:22ch}
 .dots{display:flex;gap:6px} .dots i{width:8px;height:8px;border-radius:50%;background:var(--line)} .dots i.on{background:var(--ink)}
 .pick-title{text-align:center;display:grid;gap:6px}

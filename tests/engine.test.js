@@ -65,10 +65,16 @@ console.log(wins, reasons, { avgServed: (stats.served / stats.days).toFixed(2), 
 // Market conflicts: two players claiming the same item must never both get it
 {
   const logs = { p1: [], p2: [] };
-  for (const s of ['p1', 'p2']) logs[s].push({ k: '0:pick', loc: 'country' }, { k: '1:invest', tables: 0 }, { k: '1:market', buys: [0, 1, 2] });
+  for (const s of ['p1', 'p2']) logs[s].push({ k: '0:pick', loc: 'country' }, { k: '1:invest', tables: 0 }, { k: '1:commit', h: E.adHash({ self: [], rival: [] }, 'x'), nSelf: 0, nRival: 0 },
+    { k: '1:reveal', self: [], rival: [], salt: 'x' }, { k: '1:service', ops: [] }, { k: '1:voucher', n: 0 }, { k: '1:next' }, { k: '2:morning' }, { k: '2:invest', tables: 0 }, { k: '2:market', buys: [0, 1, 2] });
   const S = E.simulate('conflict', logs), b = S.market.bought;
+  if (S.round !== 2) { console.log('market conflict: did not reach day 2', S.round, S.phase); process.exit(1); }
   if (b.p1.items.length !== 3 || b.p2.items.length !== 0) { console.log('market conflict wrong', b); process.exit(1); }
   console.log('market conflict OK');
+  // Day 1: no Market, free food in the kitchen
+  const D = E.simulate('day1', { p1: [{ k: '0:pick', loc: 'city' }, { k: '1:invest', tables: 0 }], p2: [{ k: '0:pick', loc: 'country' }, { k: '1:invest', tables: 0 }] });
+  if (D.phase !== 'commit' || D.players.p1.ingr !== E.CFG.freeFood) { console.log('day 1 free food wrong', D.phase, D.players.p1.ingr); process.exit(1); }
+  console.log('day 1 free food OK');
 }
 // Determinism and money checks: the same logs must always give the same result, and cash has at most 2 decimals.
 {

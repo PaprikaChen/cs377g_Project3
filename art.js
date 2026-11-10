@@ -112,5 +112,18 @@ const ART = (() => {
     return `<svg class="floor" viewBox="0 0 ${W} ${H}" role="img" aria-label="${o.aria || 'Your restaurant'}">${out.join('')}</svg>`;
   }
 
-  return { icon, star, stars, plate, floor };
+  // The Spoon Fight logo (L4 round badge). Each copy needs its own ids, so pass a short unique id.
+  function badge(id = 'b') {
+    return `<svg class="badge" viewBox="110 20 420 340" role="img" aria-label="Spoon Fight"><defs><clipPath id="bc-${id}"><circle cx="320" cy="190" r="150"/></clipPath>
+      <path id="ba-${id}" d="M196,190 A124,124 0 0 1 444,190"/><g id="bs-${id}"><rect x="-7" y="-28" width="14" height="110" rx="7" fill="currentColor" stroke="#0B0B0D" stroke-width="5"/><ellipse cx="0" cy="-54" rx="24" ry="32" fill="currentColor" stroke="#0B0B0D" stroke-width="5"/></g></defs>
+      <circle cx="320" cy="190" r="164" fill="#FFD21F" stroke="#7A1A0E" stroke-width="5"/>
+      <g clip-path="url(#bc-${id})"><rect x="160" y="30" width="160" height="320" fill="#1B2347"/><rect x="320" y="30" width="160" height="320" fill="#3A1527"/></g>
+      <circle cx="320" cy="190" r="150" fill="none" stroke="#0B0B0D" stroke-width="4"/>
+      <text font-family="Luckiest Guy, sans-serif" font-size="22" letter-spacing="5" fill="#FFD21F"><textPath href="#ba-${id}" startOffset="50%" text-anchor="middle">★ THE GOLDEN SPOON ★</textPath></text>
+      <use href="#bs-${id}" transform="translate(320 200) rotate(-32)" style="color:#6B8AFF"/><use href="#bs-${id}" transform="translate(320 200) rotate(32)" style="color:#F0569A"/>
+      <path d="M120,258 L520,258 L500,288 L520,318 L120,318 L140,288 Z" fill="#E8392B" stroke="#8A1610" stroke-width="5" stroke-linejoin="round"/>
+      <text x="320" y="308" text-anchor="middle" font-family="Luckiest Guy, sans-serif" font-size="50" fill="#FFFFFF" stroke="#8A1610" stroke-width="6" paint-order="stroke">SPOON FIGHT</text></svg>`;
+  }
+
+  return { icon, star, stars, plate, floor, badge };
 })();

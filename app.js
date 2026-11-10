@@ -401,14 +401,21 @@ function F(defaults) {
 // =====================================================================
 // Rendering (UI v3). Every screen is built from plain words: what happened to you, and why.
 // =====================================================================
-const V = 'v3a';
-const IMG = { logo: `assets/logo.jpg?v=${V}`, art: `assets/key-art.jpg?v=${V}`, country: `assets/countryside.jpg?v=${V}`, city: `assets/city.jpg?v=${V}` };
+const V = 'v4';
+const IMG = { art: `assets/key-art.jpg?v=${V}`, country: `assets/countryside.jpg?v=${V}`, city: `assets/city.jpg?v=${V}` };
 const STEPS = [['invest', 'Build'], ['market', 'Market'], ['commit', 'Ads'], ['service', 'Service'], ['report', 'Recap']];
-const stepIdx = p => ({ morning: 0, invest: 0, market: 1, commit: 2, reveal: 3, service: 3, voucher: 3, report: 4 })[p] ?? -1;
+// Day 1 has no Market (free food instead), so its bar has 4 steps
+const stepsFor = r => (r === 1 && CFG.freeFood ? STEPS.filter(x => x[0] !== 'market') : STEPS);
+const stepOf = p => ({ morning: 'invest', reveal: 'service', voucher: 'service' })[p] || p;
 const PRIVATE_LINES = ['Shady deal', 'Reservation paid', 'Inspector fine'];
 const PRIVATE_WHY = ['reservation had no seat −1', 'inspector −1'];
-const INTRO = ['You have $100.', "It's your dream to open a restaurant!", 'You have 5 days to survive, against a rival opening across town.',
-  'Every day: build, shop, advertise, open the doors. Make your choices.'];
+// The opening story (wording from the agreed mockups): one line per card
+const INTRO = [
+  { pic: 'team', t: 'You two were the best team at the Two Spoons.' },
+  { pic: 'review', t: 'One bad review. Each blamed the other. It closed.' },
+  { pic: 'apart', t: 'You went separate ways. Years passed. Not one word.' },
+  { pic: 'prize', t: 'Then the Golden Spoon named its prize: the Two Spoons.' },
+  { pic: 'final', t: 'You made the final. So did they.' }];
 const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + 's')}`;
 const gold = (t, cls = '') => `<span class="gold ${cls}" aria-hidden="true">${t}</span>`;
 const score = s => { const p = app.S.players[s]; return round2(p.cash + p.stars * CFG.starValue); };
@@ -427,29 +434,50 @@ function render() {
 }
 
 // ---------- header ----------
-function progressHTML(phase) {
-  const i = stepIdx(phase);
-  return `<ol class="progress" aria-label="Step ${i + 1} of 5: ${STEPS[i] ? STEPS[i][1] : ''}">${STEPS.map(([, n], j) =>
-    `${j ? '<li class="sep" aria-hidden="true"></li>' : ''}<li class="${j === i ? 'on' : j < i ? 'done' : ''}"><span class="pd"></span>${n}</li>`).join('')}</ol>`;
+// The day's steps as one progress bar (not tabs: nothing here is clickable)
+function progressHTML(S) {
+  const st = stepsFor(S.round), i = st.findIndex(x => x[0] === stepOf(S.phase)), n = st.length, name = st[i] ? st[i][1] : '';
+  return `<div class="pgbar" role="progressbar" aria-valuemin="1" aria-valuemax="${n}" aria-valuenow="${i + 1}" aria-label="Day ${S.round} of ${CFG.rounds}, step ${i + 1} of ${n}: ${name}">
+    <div class="ph"><span class="gold sm">Day ${S.round} of ${CFG.rounds}</span><b>${S.round === CFG.rounds ? 'Last day · ' : ''}${name}</b></div>
+    <div class="track"><i style="width:${(i + 0.5) / n * 100}%"></i>${st.slice(1).map((_, j) => `<s style="left:${(j + 1) / n * 100}%"></s>`).join('')}</div>
+    <div class="lbls">${st.map((x, j) => `<span class="${j === i ? 'on' : j < i ? 'done' : ''}">${x[1]}</span>`).join('')}</div></div>`;
 }
+// Cash as the player sees it right now (it moves during the Market and Service)
+function liveCash(s) {
+  const S = app.S, p = S.players[s];
+  if (S.phase === 'market' && app.mkt && controlled().includes(s) && S.waiting[s]) return mktCashLeft(s);
+  if (S.phase === 'service' && controlled().includes(s) && S.waiting[s]) { const sv = svcState(s); return serviceRun(S, s, sv.ops, sv.started ? sv.closed : 0).cash; }
+  return p.cash;
+}
+// The rival's cash as of the end of their last day (day 1: after opening and rent). Their cash during the day would give away secret offers.
+function rivalCash(o) {
+  const q = app.S.players[o], h = q.history[q.history.length - 1];
+  return h ? h.cash : CFG.startCash - CFG.loc[q.loc].open - CFG.loc[q.loc].rent;
+}
+const miniStars = (n, cls) => `<span class="ministars ${cls}" role="img" aria-label="${n} of 5 stars">${[1, 2, 3, 4, 5].map(i => `<i class="${i <= n ? 'on' : ''}">★</i>`).join('')}</span>`;
 // Light / dark theme: follows the computer's setting until the player picks one with the header button (remembered on this device)
 const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 { const t = lsGet('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; }
 function renderBar() {
   const S = app.S, bar = $('#bar');
-  let mid = '';
+  let mid = '', pills = '';
   if (S && app.mode) {
-    if (S.phase === 'pick') mid = '<span class="day"><b>Before day 1</b> · pick your spot</span>';
+    if (S.phase === 'pick') mid = '<span class="day"><b>The Golden Spoon final</b> · pick your spot</span>';
     else if (S.phase === 'over') mid = `<span class="day"><b>Game over</b> · ${S.result.reason === 'bankrupt' ? 'a restaurant closed' : '5 days played'}</span>`;
-    else mid = `<span class="day"><b>Day ${S.round} of ${CFG.rounds}</b>${S.round === CFG.rounds ? ' · last day' : ''}</span>${progressHTML(S.phase)}`;
+    else {
+      const s = viewer(), o = other(s), p = S.players[s], q = S.players[o];
+      mid = progressHTML(S);
+      pills = `<div class="pill you"><b>${app.mode === 'online' ? 'You' : esc(nameOf(s))}</b><span class="num">${usd(liveCash(s))}</span>${miniStars(p.stars, 'you')}</div>
+        <div class="pill rival"><b>${esc(nameOf(o))}</b><span class="num" title="Cash at the end of their last day">${usd(rivalCash(o))}</span>${miniStars(q.stars, 'rival')}<span class="st">${themStatus(o)}</span></div>`;
+    }
   }
   let tools = '';
   if (app.mode === 'online') tools = `<span>Room <b style="color:var(--ink);letter-spacing:.06em">${esc(app.code)}</b> · ${seatTag(app.me)}</span><button class="btn" data-act="copy" aria-label="Copy room code">${ART.icon('copy', 14)}</button>`;
   if (app.mode === 'local') tools = `<span>Practice</span>${['p1', 'p2'].map(s => `<button class="btn" data-act="view" data-seat="${s}" aria-pressed="${app.view === s}" style="${app.view === s ? 'border-color:var(--ink)' : ''}">Player ${s === 'p1' ? 1 : 2}${S && S.waiting[s] ? ' •' : ''}</button>`).join('')}`;
   tools += `<button class="btn" data-act="theme" aria-label="Switch to ${isDark() ? 'light' : 'dark'} theme" title="Switch to ${isDark() ? 'light' : 'dark'} theme">${ART.icon(isDark() ? 'sun' : 'moon', 16)}</button>`;
-  tools += '<button class="btn" data-act="howto">How to play</button>';
+  tools += `<button class="btn help" data-act="howto" aria-label="How to play" title="How to play">${app.mode ? '?' : 'How to play'}</button>`;
   if (app.mode) tools += `<button class="btn" data-act="leave">${app.mode === 'local' ? 'Quit' : 'Leave'}</button>`;
-  bar.innerHTML = `<img class="logo" src="${IMG.logo}" alt="Restaurant Rivals"><div class="mid">${mid}</div><div class="tools">${tools}</div>`;
+  bar.innerHTML = `<span class="logo">${ART.badge('hd')}</span><div class="mid">${mid}</div>${pills ? `<div class="pills">${pills}</div>` : ''}<div class="tools">${tools}</div>`;
 }
 
 // ---------- landing ----------
@@ -457,27 +485,28 @@ function lobbyHTML() {
   const last = lsGet('lastCode'), ok = app.dbReady && !app.busy;
   const step = (n, name, icon, d) => `<li><span class="ib">${ART.icon(icon, 20)}</span><span><b>${gold(n, 'sm')}${name}</b><span class="d">${d}</span></span></li>`;
   return `<div class="landing">
-    <figure class="keyart"><img src="${IMG.art}" alt="Restaurant Rivals: two chefs arm-wrestling across a kitchen counter">
-      <span class="vs"><span class="dot round you"></span>You<span class="faint">vs</span><span class="dot round rival"></span>Your rival</span></figure>
+    <figure class="keyart"><img src="${IMG.art}" alt="Spoon Fight: a cat chef in blue and a dog chef in pink face off under a red-and-white awning">
+      <span class="vs"><span class="dot round you"></span>You<span class="faint">vs</span><span class="dot round rival"></span>Your old partner</span></figure>
     <section class="pitch">
       <div style="display:grid;gap:14px">
-        <span class="eyebrow">A 2-player restaurant game · ages 13+</span>
-        <h1 class="headline" aria-label="2 Restaurants. 2 Rivals. 5 Days."><span>${gold(2)}Restaurants.</span><span>${gold(2)}Rivals.</span><span>${gold(5)}Days.</span></h1>
-        <p>Open a restaurant with $${CFG.startCash}, grab ingredients before your rival does, and use ads to pull guests in, or to trip your rival up. The restaurant with the most cash and best rating after ${CFG.rounds} days wins.</p>
+        <span class="landing-badge">${ART.badge('ld')}</span>
+        <span class="eyebrow">The Golden Spoon final · ${CFG.rounds} days · $${CFG.startCash}</span>
+        <h1 class="headline"><span>You used to cook together.</span><span class="sub2">Now only one of you gets the Two Spoons back.</span></h1>
+        <p>Open a restaurant with $${CFG.startCash}, grab food before your old partner does, and use ads to pull guests in, or to trip them up. The restaurant with the most cash and best rating after ${CFG.rounds} days wins.</p>
       </div>
       ${!app.dbMsg ? '' : app.dbMsg === 'Connecting…' ? '<p class="wait"><span class="dot round you"></span>Connecting to the game server…</p>' : `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.dbMsg)}</span></div>`}
       <div class="field"><label for="nick-in">Your name <span>· your rival sees this</span></label>
         <input type="text" id="nick-in" maxlength="12" autocomplete="nickname" placeholder="e.g. Sam" value="${esc(app.nick)}"></div>
       ${app.err ? `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.err)}</span></div>` : ''}
       <div class="choices">
-        <div class="choice-card"><div><b>Start a new game</b><div class="sub">You get a 4-letter code to send to your rival.</div></div>
+        <div class="choice-card"><div><b>Start a new game</b><div class="sub">You get a 4-letter code to send to your old partner.</div></div>
           <button class="cta" data-act="create" ${ok ? '' : 'disabled'}>${app.busy ? 'Making a room…' : 'Create a room'}</button></div>
-        <form class="choice-card" data-form="join"><div><b>Join a game</b><label class="sub" for="code-in">Type the code your rival sent you.</label></div>
+        <form class="choice-card" data-form="join"><div><b>Join a game</b><label class="sub" for="code-in">Got a code from your old partner? Type it here.</label></div>
           <div class="join"><input type="text" id="code-in" maxlength="4" autocomplete="off" placeholder="ABCD" ${app.dbReady ? '' : 'disabled'}><button class="cta" type="submit" ${ok ? '' : 'disabled'}>Join</button></div></form>
       </div>
       <div class="row" style="gap:20px">
         ${last && app.dbReady ? `<button class="resume" data-act="rejoin" data-code="${esc(last)}">Back to your game ${esc(last)} ${ART.icon('arrow', 16)}</button>` : ''}
-        <button class="linkish" data-act="local">Practice alone on one screen</button>
+        <button class="linkish" data-act="local">New here? Practice alone first</button>
       </div>
     </section>
   </div>
@@ -574,7 +603,7 @@ function gameHTML() {
   const S = app.S, s = viewer(), o = other(s);
   if (app.mode === 'local' && app.cover === s && PRIVATE_PHASES.includes(S.phase)) return coverHTML(s);
   const noRival = app.mode === 'online' && S.phase === 'pick' && !(app.seats.p2 && app.seats.p2.uid);
-  const waitRival = noRival ? `<div class="callout"><span class="dot round rival" style="margin-top:6px"></span><span><b>Waiting for your rival to join</b>Send them this page and the code <b style="display:inline;letter-spacing:.08em">${esc(app.code)}</b>.</span></div>` : '';
+  const waitRival = noRival ? `<div class="callout"><span class="dot round rival" style="margin-top:6px"></span><span><b>Waiting for your rival to join</b>Send your old partner this page and the code <b style="display:inline;letter-spacing:.08em">${esc(app.code)}</b>.</span></div>` : '';
   // One-screen practice: say whose turn it is (the old "Playing as P1" bar)
   const playing = app.mode === 'local' && S.phase !== 'over' ? `<div class="strip soft"><span class="dot round ${s === 'p1' ? 'you' : 'rival'}"></span><span><b>Playing as ${esc(nameOf(s))}</b> · switch players with the buttons at the top. Look away when it's not your turn.</span></div>` : '';
   return playing + phaseHTML(s, waitRival);
@@ -597,11 +626,25 @@ function phaseHTML(s, waitRival) {
 }
 
 // ---------- intro + pick ----------
+// Simple pictures for the story cards (placeholders until the team has illustrations)
+function storyPic(k, s) {
+  const sign = t => `<span class="sign">${t}</span>`;
+  switch (k) {
+    case 'team': return `<div class="spic">${sign('THE TWO SPOONS')}<span class="duo"><i class="you">🐱</i><i class="rival">🐶</i></span></div>`;
+    case 'review': return `<div class="spic"><span class="paper"><b>THE DAILY FORK</b><span>TWO SPOONS FLOPS</span><span class="one">★☆☆☆☆</span></span>${sign('CLOSED')}</div>`;
+    case 'apart': return `<div class="spic"><span class="duo"><i class="you">🐱</i><span class="gap">· · · · ·</span><i class="rival">🐶</i></span></div>`;
+    case 'prize': return `<div class="spic"><span class="prize"><span class="cup">🏆</span><b>THE GOLDEN SPOON</b><span>GRAND PRIZE: THE TWO SPOONS</span></span></div>`;
+    case 'final': return `<div class="spic"><span class="duo"><i class="you">🐱<small>YOU</small></i><b class="gold">VS</b><i class="rival">🐶<small>${esc(nameOf(other(s))).toUpperCase()}</small></i></span></div>`;
+  }
+  return '';
+}
 function pickHTML(s) {
   const S = app.S, k = S.waiting[s], o = other(s);
   if (app.intro < INTRO.length) {
-    return `<section class="intro"><img src="${IMG.art}" alt=""><p>${INTRO[app.intro]}</p><div class="dots">${INTRO.map((_, i) => `<i class="${i === app.intro ? 'on' : ''}"></i>`).join('')}</div>
-      <div class="row"><button class="cta inline" data-act="intro">${app.intro === INTRO.length - 1 ? "Let's go" : 'Next'}</button><button class="btn" data-act="introskip">Skip</button></div></section>`;
+    const c = INTRO[app.intro], lastCard = app.intro === INTRO.length - 1;
+    return `<section class="intro" aria-label="Story ${app.intro + 1} of ${INTRO.length}"><button class="btn skip" data-act="introskip">Skip story</button>${storyPic(c.pic, s)}<p>${c.t}</p>
+      <div class="dots">${INTRO.map((_, i) => `<i class="${i === app.intro ? 'on' : ''}"></i>`).join('')}</div>
+      <button class="cta inline" data-act="intro">${lastCard ? 'Pick your restaurant →' : 'Next'}</button></section>`;
   }
   if (!k) {
     const mine = S.got[s] && S.got[s].loc;
