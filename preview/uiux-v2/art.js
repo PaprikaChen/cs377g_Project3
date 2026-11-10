@@ -1,5 +1,6 @@
 // ===== Drawings (SVG strings) for the page. Display only: no game rules in here. =====
 const ART = (() => {
+  const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // ---------- small stroke icons (24×24, use currentColor) ----------
   const I = {
     check: '<path d="M5 12l5 5 9-10"/>',
@@ -146,5 +147,70 @@ const ART = (() => {
     `<svg class="storyart" viewBox="0 0 640 400" role="img" aria-label="Two chefs face each other across a golden spoon trophy with the Two Spoons keys, under a Golden Spoon Final banner"> <defs> <g id="chef3"> <path d="M-24,-74 a14,14 0 0 1 8,-24 a17,17 0 0 1 32,0 a14,14 0 0 1 8,24 z" fill="#F4F4F5" stroke="currentColor" stroke-width="4" stroke-linejoin="round"></path> <rect x="-24" y="-76" width="48" height="12" rx="3" fill="#F4F4F5" stroke="currentColor" stroke-width="4"></rect> <circle cx="0" cy="-44" r="20" fill="#2A2A30" stroke="currentColor" stroke-width="4"></circle> <path d="M-34,70 L-34,-4 Q-34,-22 0,-22 Q34,-22 34,-4 L34,70 Z" fill="#F4F4F5" stroke="currentColor" stroke-width="4" stroke-linejoin="round"></path> <circle cx="-9" cy="6" r="3" fill="currentColor"></circle><circle cx="-9" cy="26" r="3" fill="currentColor"></circle> <circle cx="9" cy="6" r="3" fill="currentColor"></circle><circle cx="9" cy="26" r="3" fill="currentColor"></circle> </g> </defs> <path d="M150,30 H490 L470,58 L490,86 H150 L170,58 Z" fill="#3A2A08" stroke="#F5A800" stroke-width="4" stroke-linejoin="round"></path> <text x="320" y="68" text-anchor="middle" font-family="Luckiest Guy, Inter Tight, sans-serif" font-size="25" fill="#FFD21F">THE GOLDEN SPOON · FINAL</text> <line x1="60" y1="338" x2="580" y2="338" stroke="#3F3F46" stroke-width="6" stroke-linecap="round"></line> <rect x="282" y="290" width="76" height="46" rx="6" fill="#2A2A30" stroke="#52525B" stroke-width="4"></rect> <path d="M320,290 V170" stroke="#FFD21F" stroke-width="10" stroke-linecap="round"></path> <path d="M290,170 a30,24 0 0 0 60,0 z" fill="#FFD21F" stroke="#F5A800" stroke-width="4" stroke-linejoin="round"></path> <path d="M320,128 q-6,-10 0,-20 q6,-10 0,-20" fill="none" stroke="#F5A800" stroke-width="3" stroke-linecap="round"></path> <circle cx="342" cy="236" r="9" fill="none" stroke="#E8A35C" stroke-width="4"></circle> <path d="M342,245 v22 m0,-8 h7 m-7,8 h9" fill="none" stroke="#E8A35C" stroke-width="4" stroke-linecap="round"></path> <use href="#chef3" x="150" y="262" style="color: #6B8AFF;"></use> <use href="#chef3" x="490" y="262" style="color: #F0569A;"></use> <circle cx="148" cy="215" r="2.6" fill="#F4F4F5"></circle><circle cx="162" cy="215" r="2.6" fill="#F4F4F5"></circle> <path d="M142,205 l12,3 M168,205 l-8,3" stroke="#F4F4F5" stroke-width="3" stroke-linecap="round"></path> <path d="M146,230 h14" stroke="#F4F4F5" stroke-width="3.5" stroke-linecap="round"></path> <circle cx="478" cy="215" r="2.6" fill="#F4F4F5"></circle><circle cx="492" cy="215" r="2.6" fill="#F4F4F5"></circle> <path d="M472,205 l8,3 M498,205 l-12,3" stroke="#F4F4F5" stroke-width="3" stroke-linecap="round"></path> <path d="M480,230 h14" stroke="#F4F4F5" stroke-width="3.5" stroke-linecap="round"></path> <rect x="100" y="346" width="100" height="32" rx="8" fill="#1B2347" stroke="#6B8AFF" stroke-width="3"></rect> <text x="150" y="368" text-anchor="middle" font-family="Inter Tight, Inter, sans-serif" font-weight="800" font-size="15" fill="#9DB0FF">YOU</text> <rect x="430" y="346" width="120" height="32" rx="8" fill="#3A1527" stroke="#F0569A" stroke-width="3"></rect> <text x="490" y="368" text-anchor="middle" font-family="Inter Tight, Inter, sans-serif" font-weight="800" font-size="15" fill="#F68DBA">__RIVAL__</text> <text x="320" y="374" text-anchor="middle" font-family="Luckiest Guy, Inter Tight, sans-serif" font-size="26" fill="#E8392B">VS</text> </svg>`];
   const story = (i, rival) => STORY[i].replace('__RIVAL__', rival);
 
-  return { icon, star, stars, plate, floor, badge, story };
+
+  // ---------- the restaurant, as in the v2 mockups: door queue | tables | kitchen ----------
+  // o.mode 'build' | 'service'; o.tables [{k:'free'|'seat'|'add'|'new'|'booked'|'fake'|'broken'|'bseat'|'bfree', pop}]
+  // o.door {people:[{tag, side, need:'plate'|'table', villager, bubble}], label, more}; o.kitchen {title, plates, label, warn, left, bin, note}
+  const rmPerson = (x, y, cls = '') => `<g transform="translate(${x} ${y})" class="pp ${cls}"><circle cx="0" cy="-12" r="8"/><path d="M-12 12 q0 -16 12 -16 q12 0 12 16 z"/></g>`;
+  function room(o) {
+    const svc = o.mode === 'service', H = svc ? 334 : 394, dw = svc ? 96 : 92, n = o.tables.length;
+    const cols = n > 12 ? 5 : 4, x0 = svc ? 70 : 110, dx = cols === 5 ? (svc ? 84 : 100) : (svc ? 100 : 120), y0 = svc ? 70 : 90, dy = 110;
+    let h = `<rect class="rm-bg" width="640" height="${H}" rx="18"/><rect class="rm-door" width="${dw}" height="${H}" rx="18"/>`;
+    const d = o.door || {}, cx = dw / 2;
+    h += `<text class="rm-lab" x="${cx}" y="${svc ? 26 : 110}" text-anchor="middle">DOOR</text>`;
+    const ppl = d.people || [];
+    let y = svc ? (ppl.some(p => p.need) ? 90 : 80) : 150, i = 0;
+    const step = svc ? (ppl.some(p => p.need) ? 70 : 60) : 52;
+    if (ppl[0] && ppl[0].villager) {
+      h += `<g transform="translate(${cx} 120)">${rmPerson(0, 0, 'vill')}<g transform="translate(0 -52)" class="bub"><rect x="-42" y="-20" width="84" height="32" rx="12"/><path d="M-6 12 L0 22 L6 12 Z"/><text y="-5" text-anchor="middle">${esc(d.bubble1 || 'Anything')}</text><text y="8" text-anchor="middle">${esc(d.bubble2 || 'to eat?')}</text></g></g>`;
+      i = 1; y = 220;
+    }
+    for (let r = 0; i < ppl.length && r < 4; r++) for (let c = 0; c < 2 && i < ppl.length; c++, i++) {
+      const p = ppl[i], px = c ? (svc ? 66 : 64) : 30;
+      h += `<g transform="translate(${px} ${y + r * step})">${rmPerson(0, 0, svc ? 'svc' : '')}`;
+      if (p.need) h += `<g transform="translate(16 -30)" class="needb"><circle r="14"/><text y="5" text-anchor="middle" font-size="14">${p.need === 'table' ? '🪑' : '🍽'}</text><line x1="-9" y1="9" x2="9" y2="-9"/></g>`;
+      else if (p.tag) h += `<g transform="translate(12 -22)" class="tagb ${p.side || 'you'}"><circle r="9"/><text y="4" text-anchor="middle">${esc(p.tag)}</text></g>`;
+      h += '</g>';
+    }
+    const more = ppl.length - i + (d.more || 0);
+    if (more > 0) h += `<text class="rm-note" x="${cx}" y="${y + 4 * step - 10}" text-anchor="middle">+${more} more</text>`;
+    if (d.label) h += `<text class="rm-note" x="${cx}" y="${svc ? (ppl.length ? 316 : 170) : 360}" text-anchor="middle">${esc(d.label)}</text>`;
+    // tables
+    h += `<g transform="translate(${dw} 0)">`;
+    o.tables.forEach((t, j) => {
+      const x = x0 + (j % cols) * dx, ty = y0 + Math.floor(j / cols) * dy;
+      const act = t.k === 'add' ? ` data-act="inc" data-f="tables" data-d="1" role="button" tabindex="0" aria-label="Add a table for $${o.addCost || 6}"`
+        : t.k === 'new' && o.edit ? ' data-act="inc" data-f="tables" data-d="-1" role="button" tabindex="0" aria-label="Remove this new table"' : '';
+      const txt = { add: ['+', 'plus'], new: ['NEW', 'new'], booked: ['BOOKED', 'book'], fake: ['FAKE', 'book'], broken: ['BROKEN', 'bad'], bfree: ['BORROWED', 'bor'] }[t.k];
+      h += `<g transform="translate(${x} ${ty})" class="tb ${t.k}"${act}><rect x="-38" y="-26" width="76" height="52" rx="12"/>`;
+      if (t.k === 'seat' || t.k === 'bseat') h += '<circle class="gst" cx="0" cy="-4" r="9"/><path class="gst" d="M-14 22 q14 -20 28 0"/>';
+      else if (txt) h += `<text class="tt ${txt[1]}" y="${t.k === 'add' ? 7 : 5}" text-anchor="middle">${txt[0]}</text>`;
+      h += '</g>';
+      if (t.pop) h += `<text class="pop" x="${x}" y="${ty - 34}" text-anchor="middle">${esc(t.pop)}</text>`;
+    });
+    h += '</g>';
+    // kitchen (service only)
+    const k = o.kitchen;
+    if (k) {
+      h += `<line class="rm-line" x1="540" y1="14" x2="540" y2="${H - 14}"/><text class="rm-lab ${k.warn || k.left ? 'warn' : ''}" x="590" y="26" text-anchor="middle">${esc(k.title || 'KITCHEN')}</text>`;
+      if (k.left) {
+        const m = Math.min(k.plates, 12);
+        for (let j = 0; j < m; j++) h += `<g transform="translate(${560 + (j % 3) * 30} ${60 + Math.floor(j / 3) * 30})" class="plt old"><circle r="11"/><circle class="dot" r="4"/></g>`;
+        h += '<defs><marker id="rm-arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path class="arrh" d="M0,0 L10,5 L0,10 z"/></marker></defs>';
+        h += `<g transform="translate(590 230)" class="bin"><path d="M-26,-22 L26,-22 L20,34 L-20,34 Z"/><rect x="-30" y="-30" width="60" height="9" rx="3"/><text y="12" text-anchor="middle" font-size="22">🗑️</text></g>`;
+        h += `<path class="arr" d="M590 ${60 + Math.ceil(m / 3) * 30} C 600 150, 600 170, 592 196" marker-end="url(#rm-arr)"/><text class="rm-warn" x="590" y="290" text-anchor="middle">${k.plates} go bad</text>`;
+      } else if (!k.plates) {
+        h += `<rect class="k0" x="556" y="48" width="68" height="40" rx="10"/><text class="rm-warn" x="590" y="73" text-anchor="middle">0 plates</text>`;
+      } else {
+        const m = Math.min(k.plates, 16), rows = Math.ceil(m / 2);
+        for (let j = 0; j < m; j++) h += `<g transform="translate(${574 + (j % 2) * 32} ${66 + Math.floor(j / 2) * 32})" class="plt"><circle r="13"/><circle class="dot" r="5"/></g>`;
+        h += `<text class="rm-note" x="590" y="${66 + rows * 32 + 6}" text-anchor="middle">${esc(k.label || '')}</text>`;
+      }
+      if (k.note) h += `<text class="rm-note pos" x="590" y="${H - 20}" text-anchor="middle">${esc(k.note)}</text>`;
+    }
+    return `<svg class="room2" viewBox="0 0 640 ${H}" role="img" aria-label="${esc(o.aria || '')}">${h}</svg>`;
+  }
+  const gift = () => `<svg class="giftart" viewBox="0 0 640 400" role="img" aria-label="An open gift crate with a Golden Spoon tag and 12 plates flying out of it"> <rect width="640" height="400" rx="28" fill="#17171A"/> <circle cx="320" cy="200" r="170" fill="#FFD21F" opacity=".08"/> <rect x="90" y="60" width="10" height="16" rx="3" fill="#FFD21F" transform="rotate(20 90 60)"/><rect x="560" y="70" width="10" height="16" rx="3" fill="#6B8AFF" transform="rotate(-25 560 70)"/><rect x="130" y="150" width="10" height="16" rx="3" fill="#F0569A" transform="rotate(45 130 150)"/><rect x="520" y="160" width="10" height="16" rx="3" fill="#FFD21F" transform="rotate(-10 520 160)"/><rect x="200" y="40" width="10" height="16" rx="3" fill="#6B8AFF" transform="rotate(60 200 40)"/><rect x="450" y="40" width="10" height="16" rx="3" fill="#F0569A" transform="rotate(15 450 40)"/><rect x="70" y="250" width="10" height="16" rx="3" fill="#86EFAC" transform="rotate(-30 70 250)"/><rect x="580" y="250" width="10" height="16" rx="3" fill="#86EFAC" transform="rotate(35 580 250)"/> <g transform="translate(170 165) rotate(-20)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#E8392B"/></g><g transform="translate(220 125) rotate(-16)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#86EFAC"/></g><g transform="translate(270 100) rotate(-12)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#FFD21F"/></g><g transform="translate(320 90) rotate(-8)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#F68DBA"/></g><g transform="translate(370 100) rotate(-4)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#E8392B"/></g><g transform="translate(420 125) rotate(0)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#86EFAC"/></g><g transform="translate(470 165) rotate(4)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#FFD21F"/></g><g transform="translate(200 215) rotate(8)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#F68DBA"/></g><g transform="translate(260 175) rotate(12)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#E8392B"/></g><g transform="translate(320 160) rotate(16)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#86EFAC"/></g><g transform="translate(380 175) rotate(20)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#FFD21F"/></g><g transform="translate(440 215) rotate(24)"><ellipse rx="30" ry="30" fill="#F4F4F5" stroke="#0B0B0D" stroke-width="4"/><ellipse rx="17" ry="17" fill="none" stroke="#D4D4D8" stroke-width="3"/><circle r="9" fill="#F68DBA"/></g> <g transform="translate(320 300)"> <rect x="-120" y="-20" width="240" height="96" rx="10" fill="#C9833F" stroke="#0B0B0D" stroke-width="5"/> <rect x="-18" y="-20" width="36" height="96" fill="#E8392B" stroke="#0B0B0D" stroke-width="4"/> <path d="M-132,-24 L132,-24 L118,-58 L-118,-58 Z" fill="#E8A35C" stroke="#0B0B0D" stroke-width="5" transform="rotate(-8 -132 -24)"/> <g transform="translate(96 30) rotate(10)"><rect x="-44" y="-18" width="88" height="36" rx="8" fill="#FFD21F" stroke="#0B0B0D" stroke-width="3"/><text y="6" text-anchor="middle" font-family="Luckiest Guy" font-size="15" fill="#7A1A0E">GOLDEN SPOON</text></g> </g> </svg>`;
+
+  return { icon, star, stars, plate, floor, badge, story, room, gift };
 })();

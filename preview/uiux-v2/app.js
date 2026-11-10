@@ -443,7 +443,7 @@ function F(defaults) {
 // =====================================================================
 // Rendering (UI v3). Every screen is built from plain words: what happened to you, and why.
 // =====================================================================
-const V = 'v5';
+const V = 'v6';
 const IMG = { art: `assets/key-art.jpg?v=${V}`, country: `assets/countryside.jpg?v=${V}`, city: `assets/city.jpg?v=${V}` };
 const STEPS = [['invest', 'Build'], ['market', 'Market'], ['commit', 'Ads'], ['service', 'Service'], ['report', 'Recap']];
 // Day 1 has no Market (free food instead), so its bar has 4 steps
@@ -506,7 +506,8 @@ function renderBar() {
   const S = app.S, bar = $('#bar');
   let mid = '', pills = '', logo = !!app.mode;
   if (S && app.mode && !inRoom()) {
-    if (S.phase === 'pick') {
+    if (S.phase === 'invest' && S.round === 1 && CFG.freeFood && S.waiting[viewer()] && !(app.form[`${viewer()}|${S.waiting[viewer()]}`] || {}).gift) logo = false;
+    else if (S.phase === 'pick') {
       logo = false;
       if (app.intro >= INTRO.length) mid = `<span class="daypill"><span>Day <b>1</b> of ${CFG.rounds}</span><i></i><b class="num">$${CFG.startCash}</b><i></i><span class="gstars" role="img" aria-label="${CFG.startStars} of 5 stars">${'★'.repeat(CFG.startStars)}<span>${'★'.repeat(5 - CFG.startStars)}</span></span></span>`;
     }
@@ -711,66 +712,75 @@ function pickHTML(s) {
       ${sel ? `<button class="cta inline bigc" data-act="pick" data-loc="${sel}">Open in the ${CFG.loc[sel].name}</button>` : '<span class="muted">Tap a restaurant to choose it.</span>'}</div>`;
 }
 
+
+// ---------- v2 page shell (the mockups): main card left, side column right with the button at the bottom ----------
+const lab = t => `<span class="lab">${t}</span>`;
+const fhead = (h, sub, right = '') => `<div class="fhead"><div class="fh"><h1 class="funt">${h}</h1>${sub ? `<span class="fsub">${sub}</span>` : ''}</div>${right}</div>`;
+const shell = (main, side, cta = '') => `<div class="g2"><section class="card2 main2">${main}</section><aside class="side2">${side}<div class="grow"></div>${cta}</aside></div>`;
+const box = (inner, cls = '') => `<section class="card2 box ${cls}">${inner}</section>`;
+const verdict2 = (cls, t) => `<div class="vd2 ${cls}">${t}</div>`;
+const mrow = (l, r, cls = '') => `<div class="mrow ${cls}"><span>${l}</span><b>${r}</b></div>`;
+const plateDots = n => `<span class="pdots" role="img" aria-label="${n} plates">${Array.from({ length: n }, () => '<i></i>').join('')}</span>`;
+const waitBox = (o, line = '') => box(`${lab('Waiting')}<span class="wait"><span class="dot round rival"></span><b>Waiting for ${esc(nameOf(o))}…</b></span>${line ? `<span class="fnote">${line}</span>` : ''}`);
+
 // ---------- build ----------
 // Day 1 opens with a gift screen, event days with the morning card, then the tables (one job per screen).
 function morningLine(s) {
   const S = app.S, p = S.players[s], m = S.morning[s] || {}, L = CFG.loc[p.loc];
   const prev = p.history[p.history.length - 1], fight = prev && prev.ledger.find(x => /^Fight broke/.test(x.label));
-  const bits = S.round === 1 ? [`opened: −$${L.open}`, `rent −$${L.rent}`] : [`rent −$${L.rent}`];
-  if (m.robbed) bits.push(`<b class="neg">a thief took ${usd(m.robbed)}</b>`);
-  if (m.arrived) bits.push(`${plural(m.arrived, 'plate')} from yesterday's Regular order arrived`);
-  if (fight) bits.push(`<b class="neg">${fight.label.replace('Fight broke', '').trim()} broken in yesterday's fight</b>`);
-  if (S.round === CFG.rounds - 1) bits.push('tomorrow the Market only sells Express food');
-  return `<span class="morning">${S.round === 1 ? 'Day 1' : 'This morning'} · ${bits.join(' · ')}</span>`;
+  const bits = S.round === 1 ? [`−$${L.open}`, `rent −$${L.rent}`] : [`rent −$${L.rent}`];
+  if (m.robbed) bits.push(`break-in −${usd(m.robbed).replace('$', '$')}`);
+  if (m.arrived) bits.push(`${plural(m.arrived, 'plate')} arrived`);
+  if (fight) bits.push(`${fight.label.replace('Fight broke', '').trim()} broken`);
+  if (S.round === CFG.rounds - 1) bits.push('tomorrow: Express only');
+  return `<span class="pill2">${S.round === 1 ? 'Opened: ' + bits.join(' · ') : 'This morning: ' + bits.join(' · ')}</span>`;
 }
 function giftHTML(s) {
   const o = other(s);
-  return `<section class="gift" aria-labelledby="gift-t"><span class="eyebrow">Day 1 · before you open</span><span class="gift-badge">${ART.badge('gf')}</span>
-    <h1 id="gift-t" class="gold">A gift from the Golden Spoon!</h1>
-    <div class="plates" aria-hidden="true">${Array.from({ length: CFG.freeFood }, () => ART.plate(34)).join('')}</div>
-    <p class="big1">${CFG.freeFood} free plates of food for your first night.</p>
-    <p>From tomorrow, the food is on you: you and ${esc(nameOf(o))} race for it at the Market. 🛒</p>
-    <button class="cta inline" data-act="stage" data-v="gift">Set up my restaurant →</button></section>`;
+  return `<section class="gift2" aria-labelledby="gift-t"><span class="pill2">Day 1 · before you open</span>${ART.gift()}
+    <div class="gtext"><h1 id="gift-t" class="funt">A gift from the Golden Spoon!</h1><b>${CFG.freeFood} free plates of food for your first night.</b>
+      <span>From tomorrow, the food is on you: you and ${esc(nameOf(o))} race for it at the Market. 🛒</span></div>
+    <button class="cta gcta" data-act="stage" data-v="gift">Set up my restaurant →</button></section>`;
 }
 function offerHTML(s, f) {
   const S = app.S, p = S.players[s], e = S.events[s];
-  const opt = (v, t, lines) => `<button type="button" class="choice lg ${f.choice === v ? 'on' : ''}" role="radio" aria-checked="${f.choice === v}" data-act="choose" data-c="${v}"><span class="rd"></span><span><b>${t}</b>${lines.map(l => `<span class="d">${l}</span>`).join('')}</span></button>`;
+  const opt = (v, t, lines) => `<button type="button" class="och ${f.choice === v ? 'on' : ''}" role="radio" aria-checked="${f.choice === v}" data-act="choose" data-c="${v}"><b>${t}</b>${lines.map((l, i) => `<span class="${i ? 'd2' : 'd1'}">${l}</span>`).join('')}</button>`;
   let h, sub, opts, go;
   if (e.type === 'shady') {
     const active = p.shadyFrom !== null;
-    h = active ? `The stranger is back with another $${CFG.shady.cash}` : `A stranger offers you $${CFG.shady.cash} for a shady deal`;
+    h = active ? `The stranger is back with another $${CFG.shady.cash}` : `A stranger offers you $${CFG.shady.cash}`;
     sub = active ? `You already took a deal on day ${p.shadyFrom}, so the inspector is already watching you (1 in 6 each day). Taking this one doesn't change that chance.`
-      : 'Easy money. But someone might find out.';
-    opts = opt('accept', `Take the $${CFG.shady.cash}`, [`<b class="pos">+$${CFG.shady.cash} now</b>`, `Every day after: 1 in 6 chance an inspector catches you: −$${CFG.shady.fine} and −1 ★`])
+      : 'Easy money for a shady deal. But someone might find out.';
+    opts = opt('accept', `Take the $${CFG.shady.cash}`, [`Now: <b class="pos">+$${CFG.shady.cash}</b>`, `Every day after: 1 in 6 chance an inspector catches you: <b class="neg">−$${CFG.shady.fine} and −1 star</b>`])
       + opt('decline', 'Say no', ['Nothing happens']);
     go = f.choice === 'accept' ? 'Take the money · set up →' : 'Say no · set up →';
   } else {
-    const t = p.tables, few = t < CFG.noshow.tables, n = few ? 'table' : `${CFG.noshow.tables} tables`;
+    const t = p.tables, few = t < CFG.noshow.tables;
     h = `A party wants ${few ? 'to book tables' : `${CFG.noshow.tables} tables`} tonight`;
     sub = `${t === 0 ? "You have no tables yet, so keeping tables for them won't change anything unless you buy some. " : ''}They might not turn up. It's 50/50, and you'll only find out during service.`;
     opts = opt('hold', `Keep ${few ? 'the table' : `${CFG.noshow.tables} tables`} for them`, [`If they come: <b class="pos">+$${CFG.noshow.pay}</b>`, `If not: ${few ? 'the table sits' : `${CFG.noshow.tables} tables sit`} empty all night`])
-      + opt('release', 'Say no', ['Walk-ins can use those tables', 'If the party comes anyway: <b class="neg">−1 ★</b>']);
+      + opt('release', 'Say no', ['Walk-ins can use those tables', 'If the party comes anyway: <b class="neg">−1 star</b>']);
     go = f.choice === 'hold' ? 'Keep the tables · set up →' : 'Use the tables · set up →';
   }
-  return `<section class="panel lift offer" aria-labelledby="offer-t"><span class="offer-tag">${ART.icon('lock', 13)}Only you can see this</span>${morningLine(s)}
-    <div style="display:grid;gap:6px"><h1 id="offer-t">${h}</h1><span class="sub">${sub}</span></div>
-    <div role="radiogroup" class="offer-opts">${opts}</div>
-    ${f.choice ? `<button class="cta" data-act="stage" data-v="offer">${go}</button>` : '<div class="center-note">Pick one to continue<span>It\'s a yes or no. Neither is wrong.</span></div>'}</section>`;
+  return `<section class="card2 offer2" aria-labelledby="offer-t"><div class="otop"><span class="offer-tag">🔒 Only you can see this</span>${morningLine(s).replace('pill2', 'otext')}</div>
+    <div class="fh"><h1 id="offer-t" class="funt">${h}</h1><span class="fsub">${sub}</span></div>
+    <div role="radiogroup" class="ochoices">${opts}</div>
+    ${f.choice ? `<button class="cta" data-act="stage" data-v="offer">${go}</button>` : '<span class="fnote center">Pick one to continue. It\'s a yes or no, and neither is wrong.</span>'}</section>`;
 }
 function buildHTML(s) {
-  const S = app.S, p = S.players[s], o = other(s), k = S.waiting[s], e = S.events[s], L = CFG.loc[p.loc], M = CFG.market;
+  const S = app.S, p = S.players[s], o = other(s), k = S.waiting[s], e = S.events[s], M = CFG.market;
   const last = S.round === CFG.rounds, day1 = S.round === 1 && CFG.freeFood;
   if (!k) {
     const g = S.got[s] || {}, bits = [];
     if (e.type === 'shady' && g.choice) bits.push(g.choice === 'accept' ? 'take the shady deal' : 'say no to the shady deal');
     if (e.type === 'noshow' && g.choice) bits.push(g.choice === 'hold' ? `keep ${CFG.noshow.tables} tables for the booking` : 'use the booked tables for walk-ins');
     bits.push(g.tables ? `add ${plural(g.tables, 'table')} ($${g.tables * CFG.tableCost})` : 'no new tables');
-    return `<div class="game"><section class="panel lift">${titleHTML('Your tables', '')}${morningLine(s)}${floorBuild(p, 0, p.held)}</section>
-      <aside class="stack">${waitCard(o, `You chose to ${bits.join(', ')}.`, `<span class="hint">${day1 ? 'Ads come next.' : `The Market opens as soon as they're done. It lasts ${M.time} seconds, and the fastest clicks get the food.`}</span>`)}</aside></div>`;
+    return shell(fhead('Your tables', `You chose to ${bits.join(', ')}.`, morningLine(s)) + floorBuild(p, 0, p.held, 0, expectedDemand(p)),
+      waitBox(o, day1 ? 'Ads come next.' : `The Market opens as soon as they're done. It lasts ${M.time} seconds, and the fastest clicks get the food.`));
   }
   const f = F({ tables: 0, choice: null, loan: false, stage: '' }), needChoice = e && e.type !== 'quiet';
   if (day1 && !f.gift) return giftHTML(s);
-  if (needChoice && !f.offer) return `<div class="solo">${offerHTML(s, f)}</div>`;
+  if (needChoice && !f.offer) return `<div class="solo2">${offerHTML(s, f)}</div>`;
   const loanOn = CFG.loan.enabled && !p.loan; // loans are off in CFG for now; this brings the option back if the team turns them on
   const cash = p.cash + (f.choice === 'accept' ? CFG.shady.cash : 0) + (loanOn && f.loan ? CFG.loan.amount : 0);
   const room = CFG.maxTables - p.tables, afford = Math.floor(Math.max(0, cash) / CFG.tableCost), maxT = Math.max(0, Math.min(room, afford));
@@ -780,50 +790,45 @@ function buildHTML(s) {
   const gv = E.min === E.max ? `~${E.min}` : `${Math.max(0, E.min)}–${E.max}`;
   // forecast verdict (P5: preview the outcome)
   let verdict;
-  if (seats < guess) verdict = `<span class="vd bad">${ART.icon('warn', 16)} Too few tables: about ${guess - seats} guests won't get a seat.</span>`;
-  else if (seats - guess > seats * CFG.emptyTables.share) verdict = `<span class="vd warn">${ART.icon('warn', 16)} Lots of seats: if over half sit empty at closing, you can lose a star. Ads can fill them.</span>`;
-  else verdict = `<span class="vd ok">${ART.icon('check', 16)} About right. Everyone expected gets a seat${held ? `, plus ${held} for the party` : ''}.</span>`;
+  if (seats < guess) verdict = verdict2('bad', `⚠ Too few tables: about ${plural(guess - seats, 'guest')} won't get a seat.`);
+  else if (seats - guess > seats * CFG.emptyTables.share) verdict = verdict2('warn', '⚠ Lots of seats: if over half sit empty at closing, you can lose a star. Ads can fill them.');
+  else verdict = verdict2('ok', `✓ ${held ? `Enough seats for walk-ins, plus ${held} for the party.` : 'About right. Everyone expected gets a seat.'}`);
   // money for today, and what it's still needed for
   const spend = f.tables * CFG.tableCost, after = cash - spend;
   const lo = Math.max(0, Math.min(seats, Math.max(0, E.min)) - p.ingr), hi = Math.max(0, Math.min(seats, E.max) - p.ingr);
   const pLo = last ? M.exp.price : M.reg.price, pHi = M.exp.price;
   const money = day1
-    ? `<div><span class="muted">Left for Ads (next step)</span><b>${usd(after)}</b></div></div><span class="hint">Ads bring extra guests. Tomorrow you will also need money for food.</span>`
-    : `<div><span class="muted">Food at the Market (next)</span><b>${hi ? `~$${lo * pLo}–${hi * pHi}` : '$0'}</b></div><div><span class="muted">Ads after that</span><b>the rest</b></div></div>
-       <span class="hint">${hi ? `${lo === hi ? hi : `${lo}–${hi}`} plates at $${pLo}${pLo === pHi ? '' : `–${pHi}`} each${p.ingr ? ` (you already have ${p.ingr})` : ''}. Leftovers go bad overnight.` : 'You already have enough food for the guests you expect.'}</span>`;
-  const loanCard = !loanOn ? '' : `<section class="panel"><h2>Take a loan?</h2><span class="sub">Get $${CFG.loan.amount} now and pay back $${CFG.loan.repay} at the end of the game. Once per game.</span>
-    <div role="radiogroup" style="display:grid;gap:8px"><button type="button" class="choice ${f.loan ? 'on' : ''}" role="radio" aria-checked="${!!f.loan}" data-act="loan" data-v="1"><span class="rd"></span><span><b>Take $${CFG.loan.amount}</b><span class="d">You'll owe $${CFG.loan.repay} at the end.</span></span></button>
-    <button type="button" class="choice ${f.loan ? '' : 'on'}" role="radio" aria-checked="${!f.loan}" data-act="loan" data-v="0"><span class="rd"></span><span><b>No loan</b></span></button></div></section>`;
-  const sub = room <= 0 ? `Your dining room is full: ${CFG.maxTables} tables is the most you can have.`
+    ? mrow('Left for Ads (next step)', usd(after), 'you') + '<span class="fnote">Ads bring extra guests. Tomorrow you will also need money for food.</span>'
+    : mrow('Food at the Market (next)', hi ? `~$${lo * pLo}–${hi * pHi}` : '$0', 'gold') + mrow('Ads after that', 'the rest', 'you')
+      + `<span class="fnote">${hi ? `${lo === hi ? hi : `${lo}–${hi}`} plates${held ? ' (walk-ins + the party)' : ''} at $${pLo}${pLo === pHi ? '' : `–${pHi}`} each${p.ingr ? `, on top of the ${p.ingr} you have` : ''}. Leftovers go bad overnight.` : 'You already have enough food for the guests you expect.'}</span>`;
+  const loanCard = !loanOn ? '' : box(`${lab('Take a loan?')}<span class="fnote">Get $${CFG.loan.amount} now and pay back $${CFG.loan.repay} at the end of the game. Once per game.</span>
+    <div role="radiogroup" class="ochoices"><button type="button" class="och ${f.loan ? 'on' : ''}" role="radio" aria-checked="${!!f.loan}" data-act="loan" data-v="1"><b>Take $${CFG.loan.amount}</b><span class="d2">You'll owe $${CFG.loan.repay} at the end.</span></button>
+    <button type="button" class="och ${f.loan ? '' : 'on'}" role="radio" aria-checked="${!f.loan}" data-act="loan" data-v="0"><b>No loan</b></button></div>`);
+  const sub = room <= 0 ? `Your restaurant is full: ${CFG.maxTables} tables is the most you can have.`
     : afford <= 0 ? `A table costs $${CFG.tableCost} and you have ${usd(cash)}. Keep it for ${day1 ? 'ads' : 'food at the Market'}.`
-    : `Tap a <b class="plus">+</b> to add a table for $${CFG.tableCost}. You keep it for the rest of the game.${last ? ' Last day: tables don\'t add to your score.' : ''}`;
-  const kept = needChoice ? `<span class="hint">${e.type === 'shady' ? (f.choice === 'accept' ? `You took the $${CFG.shady.cash}.` : 'You said no to the deal.') : f.choice === 'hold' ? `${CFG.noshow.tables} tables are held for the party (only you can see this).` : 'Walk-ins can use every table.'} <button class="linkish" data-act="stage" data-v="offer-back">Change</button></span>` : '';
-  return `<div class="game">
-    <section class="panel lift">${titleHTML('Set up your tables', sub)}${morningLine(s)}
-      ${floorBuild(p, f.tables, held, Math.min(maxT - f.tables, CFG.maxTables - total, 5), day1)}
-      ${day1 ? `<div class="callout food">${ART.plate(26)}<span><b>${CFG.freeFood} free plates tonight.</b>Leftovers go bad at closing. From tomorrow you buy food at the Market.</span></div>` : ''}${kept}
-    </section>
-    <aside class="stack">
-      <section class="panel"><h2>Tonight's forecast</h2>
-        <div class="fc"><span class="big">${gv}</span><span class="muted">${held ? 'walk-ins' : 'guests'} · <b style="color:var(--ink)">${plural(seats, 'seat')}${held ? ' free' : ''}</b></span></div>
-        ${verdict}
-        <span class="hint">Too few tables: guests leave and you can lose a star. Too many: if over half sit empty at closing, you can lose a star too.</span></section>
-      <section class="panel"><h2>Your $ for today</h2><div class="lines">
-        <div><span class="muted">Cash now</span><b>${usd(cash)}</b></div><div><span class="muted">New tables</span><b>${usd(-spend)}</b></div>${money}</section>
-      ${loanCard}
-      <button class="cta" data-act="invest">${day1 ? 'Done · choose your ads →' : 'Done · go shopping →'}</button>
-    </aside></div>`;
+    : `Tap a <b>+</b> to add a table for $${CFG.tableCost}. You keep it for the rest of the game.${last ? ' Last day: tables don\'t add to your score.' : ''}`;
+  const change = needChoice ? ` <button class="linkish quiet" data-act="stage" data-v="offer-back">Change your answer</button>` : '';
+  const foot = day1 ? `<div class="strip2">${plateDots(CFG.freeFood)}<span><b>${CFG.freeFood} free plates tonight.</b> Leftovers go bad at closing. From tomorrow you buy food at the Market.</span></div>`
+    : held ? `<div class="legend2"><span class="lg book"></span><span>held for the party you kept (only you can see this)</span>${change}</div>`
+    : needChoice ? `<div class="legend2"><span>${e.type === 'shady' ? (f.choice === 'accept' ? `You took the $${CFG.shady.cash}.` : 'You said no to the deal.') : 'Walk-ins can use every table.'}</span>${change}</div>` : '';
+  return shell(fhead('Set up your tables', sub, morningLine(s)) + floorBuild(p, f.tables, held, Math.min(maxT - f.tables, CFG.maxTables - total, 4), E) + foot,
+    box(`${lab("Tonight's forecast")}<div class="fc2"><span class="big2">${gv}</span><span>${held ? 'walk-ins' : 'guests'} · ${plural(seats, 'seat')}${held ? ' free' : ''}</span></div>${verdict}
+      ${day1 ? '<span class="fnote">Too few tables: guests leave and you can lose a star.<br>Too many: if over half sit empty at closing, you can lose a star too.</span>' : ''}`)
+    + box(`${lab('Your $ for today')}${mrow('Cash now', usd(cash))}${mrow('New tables', usd(-spend), 'dim')}${money}`) + loanCard,
+    `<button class="cta" data-act="invest">${day1 ? 'Done · choose your ads →' : 'Done · go shopping →'}</button>`);
 }
-function floorBuild(p, add, held, plus = 0, day1 = false) {
+// The floor plan for Build: who is coming at the door, your tables, and + spots to add more
+function floorBuild(p, add, held, plus, E) {
   const own = [...Array(p.tables).fill('free'), ...Array(add).fill('new')];
   let h = held;
-  for (let i = p.tables - 1; i >= 0 && h > 0; i--, h--) own[i] = 'reserved';
-  for (let i = own.length - 1; i >= 0 && h > 0; i--) if (own[i] === 'new') { own[i] = 'reserved'; h--; }
-  const total = own.length;
+  for (let i = p.tables - 1; i >= 0 && h > 0; i--, h--) own[i] = 'booked';
+  for (let i = own.length - 1; i >= 0 && h > 0; i--) if (own[i] === 'new') { own[i] = 'booked'; h--; }
+  const total = own.length, guess = Math.max(0, Math.round(E.total));
   own.push(...Array(Math.max(0, plus)).fill('add'));
-  return ART.floor({ own, food: p.ingr, edit: plus > 0 || add > 0, addCost: CFG.tableCost, roomLabel: `DINING ROOM · ${total} ${total === 1 ? 'TABLE' : 'TABLES'}`,
-    roomNote: total === 0 && !plus ? 'Your dining room is empty. No guest can sit down tonight.' : '',
-    kitchenNote: day1 ? ['Free from the', 'Golden Spoon'] : ["You'll buy more", 'at the Market next'], aria: `Your dining room tonight: ${total} tables, ${held} held for a booking, ${p.ingr} food in the kitchen` });
+  const gv = E.min === E.max ? `~${E.min}` : `${Math.max(0, E.min)}–${E.max}`;
+  return ART.room({ mode: 'build', edit: true, addCost: CFG.tableCost, tables: own.map(k => ({ k })),
+    door: { people: Array.from({ length: Math.min(guess, 8) }, () => ({})), more: Math.max(0, guess - 8), label: `${gv} coming` },
+    aria: `Floor plan: ${total} tables, ${held} booked for a party, ${plus} empty spots to add more, ${gv} guests expected at the door` });
 }
 
 // ---------- market ----------
@@ -947,7 +952,7 @@ function adFace(id, o) {
 }
 const shortName = { lunch: 'Lunch deal', stall: 'Market stall', bus: 'Tour bus stop', wom: 'Word of mouth', delivery: 'Delivery app', blogger: 'Food blogger', corner: 'Corner supplier', fake: 'False advert' };
 const cardName = id => shortName[id] || CFG.ads[id].name;
-const kwChip = (kw, pct) => `<span class="kw ${kw.toLowerCase()}">${KW[kw][0]} ${kw}${pct ? ' ' + pct : ''}</span>`;
+const kwChip = (kw, pct) => `<span class="kw ${kw.toLowerCase()}" title="${KW[kw][1]}">${KW[kw][0]} ${kw}${pct ? ' ' + pct : ''}</span>`;
 // One card. state: '' | 'on' (played) | 'poor' (can't afford). tag = optional HTML tag for a button
 function adCard(id, o, { state = '', button = true, stamp = '' } = {}) {
   const A = CFG.ads[id], f = adFace(id, o), side = A.side === 'self' ? 'you' : 'rival';
@@ -965,9 +970,9 @@ function adsHTML(s) {
   const S = app.S, p = S.players[s], o = other(s), k = S.waiting[s];
   if (!k) {
     const mine = myCards(s), ids = mine ? [...mine.self, ...mine.rival] : [];
-    return `<div class="game"><section class="panel lift">${titleHTML('Your cards are face down', ids.length ? `${esc(nameOf(o))} only sees ${plural(ids.length, 'card back')}. They flip when service starts.` : 'You chose not to play any cards today.')}
-      ${ids.length ? `<div class="hand">${ids.map(id => adCard(id, o, { button: false })).join('')}</div>` : ''}</section>
-      <aside class="stack">${waitCard(o, 'Service starts as soon as they lock in theirs.')}</aside></div>`;
+    return shell(fhead('Your cards are face down', ids.length ? `${esc(nameOf(o))} only sees ${plural(ids.length, 'card back')}. They flip when service starts.` : 'You chose not to play any cards today.')
+      + (ids.length ? `<div class="hand2"><div class="hrow">${ids.map(id => adCard(id, o, { button: false })).join('')}</div></div>` : ''),
+      waitBox(o, 'Service starts as soon as they lock in theirs.'));
   }
   const f = F({ sel: [] }), sh = S.shops[s], A = CFG.ads;
   const cost = f.sel.reduce((a, id) => a + A[id].price, 0), left = p.cash - cost;
@@ -978,29 +983,23 @@ function adsHTML(s) {
   const range = (a, b) => (a === b ? `${b}` : `${a}–${b}`);
   const base = range(Math.max(0, E0.min), E0.max), now = range(gMin, gMax);
   const names = self.concat(rival.filter(id => id === 'poach')).map(cardName).join(' + ');
+  const both = food < Math.min(gMax, tables + deliv) && tables + deliv < gMax;
   const verdict = canAll
-    ? `<span class="vd ok">${ART.icon('check', 16)} ${seat > gMax + 2 ? `Everyone gets served, with ${seat - gMax} seats and plates to spare. Spare food goes bad overnight.` : 'Your seats and plates cover everyone.'}</span>`
-    : `<span class="vd bad">${ART.icon('warn', 16)} ${f.sel.length && names ? `With ${esc(names)}, ` : ''}${plural(gMax - seat, 'guest')} won't have a ${short === 'plates' ? 'plate' : 'seat'}.${gMax - seat >= 4 ? ' Fewer ads might earn you more.' : ''}</span>`;
-  const hand = [...sh.self, ...sh.rival].map(id => adCard(id, o, { state: f.sel.includes(id) ? 'on' : A[id].price > left ? 'poor' : '' })).join('');
-  const g = S.submitted[o] && S.got[o];
-  return `<div class="game">
-    <section class="panel lift" aria-label="Today's ad cards" style="gap:16px">
-      ${titleHTML('Play your cards', `Tap to play face-down. ${esc(nameOf(o))} only sees the backs.`, '<span class="hint">New hand every day</span>')}
-      <div class="handrow"><span class="hd"><span class="dot you"></span>For your restaurant</span><span class="hd"><span class="dot rival"></span>Against ${esc(nameOf(o))}</span></div>
-      <div class="hand">${hand}</div>
-      <div class="kwlegend">${Object.keys(KW).map(kw => `<span>${kwChip(kw)} ${KW[kw][1]}</span>`).join('')}<span class="hint">Dashed gold edge = gamble · COUNTRY / CITY = only at that location. You pay when the cards flip.</span></div>
-    </section>
-    <aside class="stack">
-      <section class="panel"><h2>Tonight, if you play these</h2>
-        <div class="lines"><div><span class="muted">Guests</span><b>${now !== base ? `${base} → ${now}` : now}</b></div><div class="${!canAll && short === 'seats' ? 'neg' : ''}"><span class="muted">Seats</span><b>${tables}${deliv ? ` + ${deliv} delivery` : ''}</b></div><div class="${!canAll && short === 'plates' ? 'neg' : ''}"><span class="muted">Plates</span><b>${food}</b></div></div>
-        ${verdict}
-        <span class="hint">Not counted: cards ${esc(nameOf(o))} might play on you. You'll see those when they flip.</span></section>
-      <section class="panel"><h2>Played face-down</h2>
-        <div class="backs">${f.sel.length ? f.sel.map((_, i) => cardBack(i)).join('') : '<span class="hint">No cards yet.</span>'}</div>
-        <div class="lines"><div><span class="muted">${esc(nameOf(o))} sees</span><b>${plural(f.sel.length, 'card')}</b></div><div><span class="muted">Cost at the flip</span><b>${usd(-cost)}</b></div></div></section>
-      <section class="panel" style="grid-template-columns:auto 1fr;align-items:center"><span class="dot rival"></span><span style="font-size:13px;color:var(--ink2)">${g ? `<b style="color:var(--ink)">${esc(nameOf(o))} played ${plural(g.nSelf + g.nRival, 'card')}:</b> ${g.nSelf} on their restaurant, ${g.nRival} on yours. It might be a bluff.` : `<b style="color:var(--ink)">${esc(nameOf(o))}</b> is choosing cards`}</span></section>
-      <button class="cta" data-act="commit">${f.sel.length ? `Lock in ${plural(f.sel.length, 'card')}` : 'Skip ads today'}<small>${esc(nameOf(o))} only sees how many, not which</small></button>
-    </aside></div>`;
+    ? verdict2('ok', seat > gMax + 2 ? `✓ Everyone gets served, with ${seat - gMax} seats and plates to spare. Spare food goes bad overnight.` : '✓ Your seats and plates cover everyone.')
+    : verdict2('warn', `${f.sel.length && names ? `With ${esc(names)}, ` : ''}${plural(gMax - seat, 'guest')} won't have ${both ? 'a seat or a plate' : short === 'plates' ? 'a plate' : 'a seat'}.${gMax - seat >= 4 ? ' Fewer ads might earn you more.' : ''}`);
+  const scale = Math.max(12, gMax, tables + deliv, food);
+  const bar = (l, val, solid, extra, cls = '') => `<div class="bar2 ${cls}"><div class="bl"><span>${l}</span><b>${val}</b></div><div class="bt"><i style="width:${solid / scale * 100}%"></i><i class="ht" style="width:${extra / scale * 100}%"></i></div></div>`;
+  const b0 = Math.max(0, E0.max);
+  const card = id => adCard(id, o, { state: f.sel.includes(id) ? 'on' : A[id].price > left ? 'poor' : '' });
+  return shell(fhead('Play your cards', `Tap to play face-down. ${esc(nameOf(o))} only sees the backs.`, '<span class="pill2">New hand every day</span>')
+      + `<div class="hand2" aria-label="Today's ad cards"><div class="hrow">${sh.self.map(card).join('')}</div><div class="hrow">${sh.rival.map(card).join('')}</div></div>`,
+    box(`${lab('Tonight, if you play these')}
+        ${bar('Guests', now !== base ? `${base} → ${now}${names ? ` with ${esc(names)}` : ''}` : now, Math.min(b0, gMax), Math.max(0, gMax - b0))}
+        ${bar('Seats', `${tables}${deliv ? ` + ${deliv} delivery` : ''}`, tables + deliv, 0, !canAll && short === 'seats' ? 'low' : '')}
+        ${bar('Plates', food, food, 0, !canAll && short === 'plates' ? 'low' : '')}${verdict}`)
+    + box(`<div class="bhead">${lab('Played face-down')}<span>${esc(nameOf(o))} sees: ${plural(f.sel.length, 'card')}</span></div>
+        <div class="backs2">${f.sel.length ? f.sel.map((_, i) => cardBack(i)).join('') : '<span class="fnote">No cards yet.</span>'}<b>${usd(-cost)}</b></div>`),
+    `<button class="cta" data-act="commit">${f.sel.length ? `Lock in ${plural(f.sel.length, 'card')}` : 'Skip ads today'}</button>`);
 }
 
 // ---------- service ----------
@@ -1016,20 +1015,27 @@ function svcFloor(s, v, shown, P, extra = {}) {
   const fight = shown.find(x => x.k === 'fight');
   const held = Math.min(p.held, p.tables), fake = Math.min(sc.fakeHeld, p.tables - held), lost = fight ? Math.min(fight.tables, p.tables - held - fake) : 0;
   const ownUse = Math.max(0, p.tables - held - fake - lost), borrowedN = Math.max(0, cur.tables - ownUse);
-  const seated = cur.usedT, ownSeat = Math.min(seated, ownUse), bSeat = Math.max(0, seated - ownSeat);
-  const own = [...Array(ownSeat).fill('seat'), ...Array(ownUse - ownSeat).fill('free'), ...Array(held).fill('reserved'), ...Array(fake).fill('fake'), ...Array(lost).fill('broken')];
+  const seated = extra.closed ? 0 : cur.usedT, ownSeat = Math.min(seated, ownUse), bSeat = Math.max(0, seated - ownSeat);
+  const tables = [...Array(ownSeat).fill('seat'), ...Array(ownUse - ownSeat).fill('free'), ...Array(held).fill('booked'), ...Array(fake).fill('fake'), ...Array(lost).fill('broken'),
+    ...Array(bSeat).fill('bseat'), ...Array(Math.max(0, borrowedN - bSeat)).fill('bfree')].map(k => ({ k }));
+  // +$ pops over the tables that just got paid
+  if (extra.popN) for (let i = Math.max(0, ownSeat - extra.popN); i < ownSeat; i++) tables[i].pop = extra.popEach;
   const sv = svcState(s), busy = P && P.kind === 'short' && sv.busy;
-  const borrowed = [...Array(bSeat).fill('bseat'), ...Array(Math.max(0, borrowedN - bSeat)).fill('bfree'), ...(busy && sv.busy.a === 'borrow' ? ['arriving'] : [])];
-  let queue = 0, tags = [];
+  let people = [];
   if (P && P.kind === 'short') {
-    // What each waiting guest is missing: a plate, a table, or nothing (they'll be seated)
+    // What each waiting guest is missing: a plate or a table
     const g = P.group, freeT = g.noTable ? Infinity : Math.max(0, v.tables - v.usedT);
-    queue = P.need;
-    tags = Array.from({ length: P.need }, (_, i) => ({ b: BADGE[g.src] || '', need: i >= v.ingr ? '🍽' : i >= freeT ? '🪑' : '' }));
-  } else if (extra.next) { queue = extra.next.n; tags = Array.from({ length: queue }, () => ({ b: BADGE[extra.next.src] || '' })); }
-  return ART.floor({ own, borrowed, food: cur.ingr, incoming: busy && sv.busy.a === 'rush', deliv: cur.deliv || 0, queue, queueTags: tags, queueLabel: P ? 'waiting' : 'next in line',
-    away: cur.turned, asker: P && P.kind === 'food', bin: extra.bin || 0, pop: extra.pop || '', roomLabel: `DINING ROOM · YOUR ${p.tables} ${p.tables === 1 ? 'TABLE' : 'TABLES'}`,
-    aria: `Your restaurant: ${seated} guests eating, ${cur.ingr} food left, ${cur.turned} left unhappy` });
+    people = Array.from({ length: P.need }, (_, i) => ({ need: i >= v.ingr ? 'plate' : i >= freeT ? 'table' : '' })).filter(x => x.need);
+  } else if (P && P.kind === 'food') {
+    const later = sc.arrivals.slice(1).reduce((n, g) => n + g.n, 0);
+    people = [{ villager: true }, ...Array.from({ length: later }, () => ({}))];
+  } else if (extra.next) people = Array.from({ length: extra.next.n }, () => ({ tag: BADGE[extra.next.src] || '', side: extra.next.src === 'swamp' ? 'rival' : 'you' }));
+  const plates = cur.ingr;
+  const kitchen = extra.closed ? (plates ? { title: 'LEFTOVERS', left: true, plates } : { title: 'KITCHEN', plates: 0, label: '' })
+    : { title: 'KITCHEN', plates, warn: !plates, label: `${plural(plates, 'plate')} left`, note: busy && sv.busy.a === 'rush' ? '+1 on its way' : '' };
+  if (extra.closed && !plates) kitchen.plates = 0;
+  return ART.room({ mode: 'service', tables, kitchen, door: { people, label: extra.closed ? 'closed' : '', bubble1: p.loc === 'city' ? 'Spare' : 'Anything', bubble2: p.loc === 'city' ? 'some food?' : 'to eat?' },
+    aria: `Your restaurant: ${seated} guests eating, ${plates} plates left, ${cur.turned} left unhappy${people.length ? `, ${people.length} at the door` : ''}` });
 }
 // A card result in plain words (from the step the engine recorded)
 function adResult(x) {
@@ -1076,10 +1082,10 @@ function logLine(st, s) {
 // The star rule, always in view during service (P5). n = guests left unhappy so far (or if you let them go)
 function starCheck(n, note) {
   const tier = n === 0 ? 0 : n <= 3 ? 1 : 2;
-  const row = (i, l, r, cls) => `<div class="${i === tier ? 'on' : ''}"><span class="ar" aria-hidden="true">${i === tier ? '▶' : ''}</span><span>${l}</span><b class="${cls}">${r}</b></div>`;
-  return `<section class="panel starcheck" aria-label="Star check at closing"><div class="row" style="justify-content:space-between"><h2>Star check at closing</h2><span class="hint">${note}</span></div>
-    <div class="tiers">${row(0, '0 left unhappy', '+1 ★', 'pos')}${row(1, '1–3 left unhappy', '−1 ★', 'neg')}${row(2, '4 or more', '−2 ★', 'neg')}</div>
-    <span class="hint">Plus: if over half your tables are empty at closing, ${Math.round(CFG.emptyTables.chance * 100)}% chance of −1 ★.</span></section>`;
+  const row = (i, l, r) => `<div class="${i === tier ? 'on' : ''} t${i}"><span class="ar" aria-hidden="true">${i === tier ? '▶' : ''}</span><span>${l}</span><b>${r}</b></div>`;
+  return box(`<div class="bhead">${lab('Star check at closing')}<span>${note}</span></div>
+    <div class="tiers2">${row(0, '0 left unhappy', '+1 ★')}${row(1, '1–3 left unhappy', '−1 ★')}${row(2, '4 or more', '−2 ★')}</div>
+    <span class="fnote">Plus: if over half your tables are empty at closing, ${Math.round(CFG.emptyTables.chance * 100)}% chance of −1 ★.</span>`, 'starcheck2');
 }
 // Card flips before the doors open: what each card did, one at a time
 function flipList(s) {
@@ -1092,8 +1098,8 @@ function flipStamp(x, s) {
   const A = CFG.ads[x.id], o = esc(nameOf(other(s)));
   if (x.onRival) return ['PLAYED', `It works on ${o}'s restaurant tonight.`, ''];
   switch (x.id) {
-    case 'bus': return x.n ? [`🎲 THE BUS CAME! +${x.n}`, `${x.n} more guests at your door.`, ''] : ['🎲 NO BUS', `No bus today. The $${A.price} is spent anyway.`, 'bad'];
-    case 'blogger': return x.n ? [`🎲 THEY CAME! +${x.n}`, `Seat all ${x.n} for a ${Math.round(A.star * 100)}% shot at a star.`, ''] : ['🎲 NO SHOW', "The blogger didn't come.", 'bad'];
+    case 'bus': return x.n ? [`🎲 THE BUS CAME! +${x.n}`, `Coin flip won. ${x.n} more guests at your door.`, 'gold'] : ['🎲 NO BUS', `No bus today. The $${A.price} is spent anyway.`, 'bad'];
+    case 'blogger': return x.n ? [`🎲 THEY CAME! +${x.n}`, `Coin flip won. Seat all ${x.n} for a ${Math.round(A.star * 100)}% shot at a star.`, 'gold'] : ['🎲 NO SHOW', "The blogger didn't come.", 'bad'];
     case 'subway': return [`+${x.n} ARRIVED`, x.n < A.n ? `Lost in the crowd: only ${x.n} came.` : `${x.n} more guests at your door.`, x.n < A.n ? 'bad' : ''];
     case 'stall': return [`+${x.n} 👤 +${x.food} 🍽`, 'A guest, plus a free plate in your kitchen.', ''];
     case 'delivery': return [`+${x.n} ORDERS`, 'They need food, but no table.', ''];
@@ -1112,67 +1118,59 @@ function serviceHTML(s) {
     let seated = 0, away = 0, earned = 0;
     for (const st of shown) if (st.k === 'arrive') { seated += st.seated; away += st.away; }
     for (const st of shown) if (st.k === 'arrive') { const g = sc.arrivals.find(x => x.src === st.src); earned += st.seated * (g ? g.price : L.price); }
-    return { seated, away, earned, html: `<div class="tally"><span class="earn">+${usd(earned)} tonight</span><span>Seated <b>${seated}</b></span><span class="${away ? 'bad' : ''}">Left unhappy <b>${away}</b></span></div>` };
+    return { seated, away, earned, html: `<div class="cpills"><span class="cp earn">+${usd(earned)} tonight</span><span class="cp seat">Seated ${seated}</span><span class="cp ${away ? 'bad' : ''}">Left unhappy ${away}</span></div>` };
   };
-  const head = (h, sub, c) => `<div class="title"><div style="display:grid;gap:2px"><h1>${h}</h1><span class="sub">${sub}</span></div>${c.html}</div>`;
   const rule = `Every guest needs <b>1 table + 1 plate</b>. Each meal pays $${L.price}.`;
-  // cards tonight (what each ad did), as badges
+  // cards tonight (what each ad did), with the badge their guests wear
   const cardsTonight = (shown) => {
     const cards = shown.filter(x => x.k === 'card'), poached = shown.find(x => x.k === 'poached');
     if (!cards.length && !poached) return '';
-    const line = x => x.from === 'self' ? `<div class="cardline"><span class="lead"><span class="gbadge">${BADGE[x.id] || '•'}</span>${esc(cardName(x.id))}</span><span class="d">${adResult(x)}</span></div>`
-      : `<div class="cardline"><span class="lead"><span class="gbadge rival">${x.id === 'swamp' ? '!' : '×'}</span>${esc(nameOf(o))}'s ${esc(cardName(x.id))}</span><span class="d">${trickResult(x, s)[0]}</span></div>`;
-    return `<section class="panel"><h2>Cards tonight</h2><div>${cards.map(line).join('')}${poached ? `<div class="cardline"><span class="lead"><span class="gbadge">P</span>Poach a guest</span><span class="d">${plural(poached.n, 'guest')} from ${esc(nameOf(o))} came to you instead.</span></div>` : ''}</div></section>`;
-  };
-  const logPanel = (shown) => {
-    const lines = shown.map(x => logLine(x, s)).filter(Boolean).reverse();
-    return lines.length ? `<details class="panel daylog"><summary><b>Tonight so far</b><span class="hint">${plural(lines.length, 'thing')} happened</span></summary><ol class="log">${lines.slice(0, 8).map((t, i) => `<li class="${i === 0 ? 'now' : ''}"><span class="w">${i === 0 ? 'NOW' : ''}</span>${esc(t)}</li>`).join('')}</ol></details>` : '';
+    const line = x => x.from === 'self' ? `<div class="cline"><span class="gb2">${BADGE[x.id] || '•'}</span><span><b>${esc(cardName(x.id))}:</b> ${adResult(x)}</span></div>`
+      : `<div class="cline"><span class="gb2 rival">${CARDART(x.id)}</span><span><b>${esc(nameOf(o))}'s ${esc(cardName(x.id))}:</b> <span class="neg">${trickResult(x, s)[0]}</span></span></div>`;
+    return box(`${lab('Cards tonight')}${cards.map(line).join('')}${poached ? `<div class="cline"><span class="gb2">P</span><span><b>Poach a guest:</b> ${plural(poached.n, 'guest')} from ${esc(nameOf(o))} came to you instead.</span></div>` : ''}`);
   };
   // after closing: waiting for the rival
   if (!S.waiting[s]) {
     const v = serviceRun(S, s, (S.got[s] && S.got[s].ops) || sv.ops), c = counters(v.out);
-    return `<div class="game"><section class="panel lift">${head('Closed for the night', 'Your doors are closed.', c)}${svcFloor(s, v, v.out, null)}</section>
-      <aside class="stack">${waitCard(o, 'The recap opens when they finish serving.')}${starCheck(v.turned, 'tonight')}${cardsTonight(v.out)}</aside></div>`;
+    return shell(fhead('Closed for the night', 'Your doors are closed.', c.html) + svcFloor(s, v, v.out, null, { closed: true }),
+      waitBox(o, 'The recap opens when they finish serving.') + starCheck(v.turned, `${v.turned} unhappy`) + cardsTonight(v.out));
   }
-  // before the doors open: the ad cards flip one at a time
+  // before the doors open: the ad cards flip one at a time, by themselves
   if (!sv.started) {
-    const v0 = serviceRun(S, s, [], 0), list = flipList(s), shownN = Math.min(sv.flip, list.length);
-    const guests = sc.arrivals.reduce((a, g) => a + g.n, 0);
+    const list = flipList(s), shownN = Math.min(sv.flip, list.length), done = shownN >= list.length;
     const start = Math.max(0, CFG.baseDemand + sc.repGain - sc.repLoss - sc.fewer) + p.wom;
-    const parts = list.slice(0, shownN).filter(x => !x.onRival && x.n).map(x => (x.n > 0 ? ` + ${x.n}` : ` − ${-x.n}`)).join('');
-    const poachN = S.reveals[s].rival.includes('poach') && list.slice(0, shownN).some(x => x.onRival && x.id === 'poach') ? ` + ${CFG.ads.poach.n}` : '';
-    const done = shownN >= list.length;
-    const t = Math.max(0, p.tables - p.held - sc.fakeHeld), fd = p.ingr + sc.stallFood;
-    if (list.length && !done) {
-      const cards = list.slice(0, shownN + 1).map((x, i) => {
-        const [st, line, cls] = flipStamp(x, s), up = i < shownN;
-        return `<div class="flip"><span class="who">${x.who}</span>${up ? adCard(x.id, o, { button: false, stamp: `<span class="stamp ${cls}">${st}</span>` }) : cardBack('f' + i)}<span class="hint">${up ? line : 'Flipping…'}</span></div>`;
-      }).join('');
-      return `<div class="game"><section class="panel lift">${titleHTML('Cards flip!', 'One at a time, before the doors open.')}
-        <div class="flips">${cards}</div>
-        <div class="decide"><div class="q"><span><b>Tonight so far: ${parts || poachN ? `${start}${parts}${poachN} = ${start + list.slice(0, shownN).filter(x => !x.onRival && x.n).reduce((a, x) => a + x.n, 0) + (poachN ? CFG.ads.poach.n : 0)}` : start} guests</b><span>${shownN ? '' : 'Your regulars, before any cards.'}</span></span></div>
-        <button class="cta inline" data-act="flip">${shownN + 1 >= list.length ? 'Flip the last card' : 'Flip the next card'} →</button></div></section>
-        <aside class="stack">${starCheck(0, 'tonight')}</aside></div>`;
+    const counted = list.slice(0, shownN).filter(x => !x.onRival && x.n);
+    const poachN = S.reveals[s].rival.includes('poach') && list.slice(0, shownN).some(x => x.onRival && x.id === 'poach') ? CFG.ads.poach.n : 0;
+    const parts = counted.map(x => (x.n > 0 ? ` + ${x.n}` : ` − ${-x.n}`)).join('') + (poachN ? ` + ${poachN}` : '');
+    const total = start + counted.reduce((a, x) => a + x.n, 0) + poachN;
+    if (!done) {
+      const key = `${sv.key}:${sv.flip}`;
+      if (app.flipKey !== key) { app.flipKey = key; setTimeout(() => { if (app.flipKey === key && !sv.started) { sv.flip++; render(); } }, shownN ? 1700 : 800); }
     }
-    return `<div class="game"><section class="panel lift">${head('Ready to open?', rule, counters([]))}${svcFloor(s, v0, [], null)}
-      <div class="decide"><div class="q"><span><b>${plural(guests, 'guest')} on the way tonight</b><span>You can serve ${Math.min(t + (v0.deliv || 0), fd)} of them right now: ${plural(t, 'table')} and ${plural(fd, 'plate')}.</span></span></div>
-      <button class="cta inline" data-act="play">Open the doors →</button></div></section>
-      <aside class="stack">${starCheck(0, 'tonight')}${list.length ? `<section class="panel"><h2>Cards tonight</h2>${list.map(x => `<div class="cardline"><span class="lead">${x.who}: ${esc(cardName(x.id))}</span><span class="d">${flipStamp(x, s)[1]}</span></div>`).join('')}</section>` : ''}</aside></div>`;
+    const col = (x, i) => {
+      const [st, line, cls] = flipStamp(x, s), whoCls = x.who.endsWith('on you') ? 'rival' : 'you';
+      return `<div class="fcol"><span class="who ${whoCls}">${x.who}</span><div class="fcard">${adCard(x.id, o, { button: false })}<span class="stamp2 ${cls}">${st}</span></div><span class="fline">${line}</span></div>`;
+    };
+    const next = done ? '' : `<div class="fcol nx"><span class="who">Next</span><div class="fback">${cardBack('f' + shownN)}</div><span class="fline dim">${shownN ? 'The next card flips…' : 'Turning over the cards…'}</span></div>`;
+    const t = Math.max(0, p.tables - p.held - sc.fakeHeld), fd = p.ingr + sc.stallFood;
+    return `<section class="flip2" aria-live="polite"><div class="fh center"><h1 class="funt">${list.length ? 'Cards flip!' : 'No cards tonight'}</h1><span class="fsub">${list.length ? 'One at a time, before the doors open.' : 'Neither of you played a card on this restaurant.'}</span></div>
+      ${list.length ? `<div class="flips2">${list.slice(0, shownN).map(col).join('')}${next}</div>` : ''}
+      <div class="eqpill"><span>Tonight so far:</span><b>${parts ? `${start}${parts} = ${total}` : start} guests</b></div>
+      ${done ? `<span class="fnote center">You can serve ${Math.min(t + (sc.arrivals.some(g => g.noTable) ? CFG.ads.delivery.n : 0), fd)} of them right now: ${plural(t, 'table')} and ${plural(fd, 'plate')}.</span><button class="cta inline bigc" data-act="play">Open the doors →</button>` : ''}</section>`;
   }
   const v = serviceRun(S, s, sv.ops, sv.closed), shown = v.out.slice(0, sv.idx), P = sv.idx >= v.out.length ? v.pending : null, c = counters(shown);
   const finished = sv.idx >= v.out.length && !v.pending;
-  const ff = finished ? '' : `<button class="btn" data-act="fast">${ART.icon('ff', 12)} ${sv.fast ? 'Normal speed' : 'Fast-forward'}</button>`;
   // someone asks for food (villager in the countryside): both choices show the odds
   if (P && P.kind === 'food') {
-    const who = p.loc === 'city' ? 'Someone on the street is hungry' : 'A villager is hungry', place = p.loc === 'city' ? 'the street' : 'the village';
+    const who = p.loc === 'city' ? 'Someone is hungry' : 'A villager is hungry', place = p.loc === 'city' ? 'the street' : 'the village';
     const later = sc.arrivals.slice(1).reduce((a, g) => a + g.n, 0), pct = x => `${Math.round(x * 100)}%`;
     const give = v.ingr >= 1
-      ? `<button class="opt ink" data-act="svc" data-a="give"><b>Give 1 plate</b><span>Free meal, no money</span><span class="kw gamble">🎲 ${pct(C.foodGood)}</span><span>word of your kindness: <b class="pos">+1 ★</b></span></button>`
-      : '<span class="hint">No food left to give.</span>';
-    return `<div class="game"><section class="panel lift">${head(who, `They can't pay. You decide, and ${place} will talk about it.`, c)}${svcFloor(s, v, shown, P)}
-      <div class="decide" role="alertdialog" aria-label="Someone asks for food"><div class="q"><span><b>Give them a plate?</b></span></div>
-        <div class="opts">${give}<button class="opt" data-act="svc" data-a="refuse"><b>Say no</b><span>Keep the plate</span><span class="kw gamble">🎲 ${pct(C.foodBad)}</span><span>word gets out: <b class="neg">−1 ★</b></span></button></div></div></section>
-      <aside class="stack">${starCheck(c.away, 'right now')}<section class="panel"><h2>Think about</h2><span class="sub" style="font-size:14px;line-height:1.45">${later ? `${plural(later, 'more guest')} ${later === 1 ? 'is' : 'are'} still expected tonight and you have ${plural(v.ingr, 'plate')}.` : `Nobody else is expected tonight and you have ${plural(v.ingr, 'plate')}.`}</span></section>${cardsTonight(shown)}</aside></div>`;
+      ? `<button class="opt2 ink" data-act="svc" data-a="give"><b>Give 1 plate</b><span>Free meal, no money</span><span class="odds"><span class="kw gamble">🎲 ${pct(C.foodGood)}</span>word of your kindness: +1 ★</span></button>`
+      : '<span class="fnote">No food left to give.</span>';
+    return shell(fhead(who, `They can't pay. You decide, and ${place} will talk about it.`, c.html) + svcFloor(s, v, shown, P)
+      + `<div class="decide2" role="alertdialog" aria-label="Someone asks for food"><b class="dq">Give them a plate?</b>
+        <div class="opts2 two">${give}<button class="opt2" data-act="svc" data-a="refuse"><b>Say no</b><span>Keep the plate</span><span class="odds"><span class="kw gamble">🎲 ${pct(C.foodBad)}</span>word gets out: −1 ★</span></button></div></div>`,
+      starCheck(c.away, 'right now') + box(`${lab('Think about')}<span class="btext">${later ? `${plural(later, 'paying guest')} ${later === 1 ? 'is' : 'are'} still expected tonight and you have ${plural(v.ingr, 'plate')}.` : `Nobody else is expected tonight and you have ${plural(v.ingr, 'plate')}.`}</span>`));
   }
   // shortage: bubbles show what each guest is missing, each choice says what it does
   if (P && P.kind === 'short') {
@@ -1181,72 +1179,75 @@ function serviceHTML(s) {
     const food = P.shortOn.includes('ingr'), tabs = P.shortOn.includes('tables'), miss = P.need - P.can, meal = P.group.price;
     const h = food && tabs ? 'Out of plates and tables!' : food ? 'Out of plates!' : 'Out of tables!';
     const tierAfter = c.away + miss, starNow = tierAfter === 0 ? '+1 ★' : tierAfter <= 3 ? '−1 ★' : '−2 ★';
+    let first = true;
     const act = (a, label, sub) => {
       const price = pr(a);
-      if (v.cash < price) return `<span class="hint">${label} costs $${price}. You have ${usd(v.cash)}.</span>`;
-      return `<button class="opt ink" data-act="svc" data-a="${a}"><span class="r"><b>${label}</b><b>$${price}</b></span><span>${sub(price)}</span><kbd>${a === 'rush' ? 'R' : 'B'}</kbd></button>`;
+      if (v.cash < price) return `<div class="opt2 off"><span class="r"><b>${label}</b><b>$${price}</b></span><span>You have ${usd(v.cash)}, not enough.</span></div>`;
+      const cls = first ? 'ink' : ''; first = false;
+      return `<button class="opt2 ${cls}" data-act="svc" data-a="${a}"><span class="r"><b>${label}</b><b>$${price}</b></span><span>${sub(price)}</span><kbd>${a === 'rush' ? 'R' : 'B'}</kbd></button>`;
     };
     const acts = b ? '' : [food ? act('rush', 'Rush 1 plate', pr0 => `+1 guest eats (+$${meal}) · ${meal >= pr0 ? `you make $${meal - pr0}` : `you lose $${pr0 - meal}`}, but one fewer unhappy${S.script[s].cornered ? ` · +$${CFG.ads.corner.extra}, sabotaged` : ''}`) : '',
-      tabs ? act('borrow', 'Borrow a table', () => `Only helps a guest who needs a seat · neighbour may say no (${Math.round(C.borrowNo * 100)}%)`) : ''].join('');
+      tabs ? act('borrow', 'Borrow a table', () => `Only helps the guest who needs a seat · neighbour may say no`) : ''].join('');
     // why this happened (P6)
-    const first = v.out[0] ? v.out[0].snap : v, extra = shown.filter(x => x.k === 'card' && x.n > 0);
+    const extra = shown.filter(x => x.k === 'card' && x.n > 0);
     const why = `You opened with ${plural(p.ingr + sc.stallFood, 'plate')} and ${plural(Math.max(0, p.tables - p.held - sc.fakeHeld), 'table')}.${extra.length ? ` ${extra.map(x => (x.from === 'self' ? esc(cardName(x.id)) : `${esc(nameOf(o))}'s ${esc(cardName(x.id))}`)).join(' and ')} brought ${plural(extra.reduce((a, x) => a + x.n, 0), 'extra guest')}.` : ''}`;
-    return `<div class="game"><section class="panel lift">${head(h, `${plural(miss, 'guest')} at the door can't be served. The bubbles show what each one is missing.`, c)}${svcFloor(s, v, shown, P)}
-      <div class="decide ${triesLeft <= 1 ? 'hot' : ''}" role="alertdialog" aria-label="Guests waiting"><div class="q"><span class="ringw">${ring(sv.waitAt, sv.waitAt + C.patience * 1000, 'ink')}<b data-count="${sv.waitAt + C.patience * 1000}"></b></span>
-          <span><b>They'll wait a few more seconds. What do you do?</b><span>${b ? '' : `You can try ${plural(triesLeft, 'more time')}.`}</span>
-          ${b ? `<span class="toastline">${b.a === 'rush' ? 'Food on its way…' : 'Asking next door…'}</span>${pbar(b.start, b.until)}` : sv.msg ? `<span class="toastline">${esc(sv.msg)}</span>` : ''}${P.villagers ? `<span class="toastline">Villagers brought ${P.villagers} food for free!</span>` : ''}</span></div>
-        <div class="opts">${acts}<button class="opt" data-act="svc" data-a="letgo"><span class="r"><b>Let them go</b><b>$0</b></span><span>${plural(miss, 'guest')} leave${miss === 1 ? 's' : ''} unhappy → star check: ${starNow}</span><kbd>Esc</kbd></button></div></div></section>
-      <aside class="stack">${starCheck(tierAfter, `if you let them go: ${starNow}`)}<section class="panel"><h2>Why this happened</h2><span class="sub" style="font-size:14px;line-height:1.45">${why}</span></section>${cardsTonight(shown)}</aside></div>`;
+    const status = b ? `<span class="dstatus">${b.a === 'rush' ? 'Food on its way…' : 'Asking next door…'}${pbar(b.start, b.until)}</span>` : sv.msg ? `<span class="dstatus">${esc(sv.msg)}</span>` : '';
+    return shell(fhead(h, `${plural(miss, 'guest')} at the door can't be served. The bubbles show what each one is missing.`, c.html) + svcFloor(s, v, shown, P)
+      + `<div class="decide2 ${triesLeft <= 1 ? 'hot' : ''}" role="alertdialog" aria-label="Guests waiting"><div class="dq"><span class="ringw">${ring(sv.waitAt, sv.waitAt + C.patience * 1000, 'ink')}<b data-count="${sv.waitAt + C.patience * 1000}"></b></span><b>They'll wait a few more seconds. What do you do?</b></div>
+        ${status}${P.villagers ? `<span class="dstatus">Villagers brought ${P.villagers} food for free!</span>` : ''}
+        <div class="opts2">${acts}<button class="opt2" data-act="svc" data-a="letgo"><span class="r"><b>Let them go</b><b>$0</b></span><span class="neg">${plural(miss, 'guest')} leave${miss === 1 ? 's' : ''} unhappy → star check drops to ${starNow}</span><kbd>Esc</kbd></button></div></div>`,
+      starCheck(tierAfter, `if you let them go: ${starNow}`) + box(`${lab('Why this happened')}<span class="btext">${why}</span>`));
   }
   // closing time: leftovers go in the bin (day 1: the free plates)
   if (finished) {
     const left = v.ingr, day1 = S.round === 1 && CFG.freeFood, emptyRisk = v.tables && v.empty > v.tables * CFG.emptyTables.share;
-    const waste = left ? (day1 ? `<b>${left} of your ${CFG.freeFood} free plates went to waste.</b>Food doesn't keep overnight. Tomorrow you pay for every plate, so buy only what you'll serve.`
-      : `<b>${plural(left, 'plate')} ${left === 1 ? 'goes' : 'go'} bad tonight.</b>Food doesn't keep overnight. That's money in the bin.`) : '<b>No leftovers.</b>Every plate was served. Nothing wasted.';
-    return `<div class="game"><section class="panel lift">${head('Closing time', `Day ${S.round} is done. Here's what's left in your restaurant.`, c)}${svcFloor(s, v, shown, null, { bin: left })}
-      <div class="callout ${left ? 'waste' : ''}">${left ? '<span class="binic" aria-hidden="true">🗑️</span>' : ART.icon('check', 22)}<span>${waste}</span></div>
-      <div class="decide"><div class="q"><span><b>${v.turned ? `${plural(v.turned, 'guest')} left unhappy tonight` : 'Nobody left unhappy'}</b><span>${v.turned ? 'Next you can say sorry with a voucher.' : 'Time to see how the day went.'}</span></span></div>
-      <button class="cta inline" data-act="svcdone">${v.turned ? 'Close for the day →' : `See how day ${S.round} went →`}</button></div></section>
-      <aside class="stack">${starCheck(v.turned, `${v.turned} unhappy`)}<section class="panel"><h2>Empty tables check</h2><span class="vd ${emptyRisk ? 'bad' : 'ok'}">${ART.icon(emptyRisk ? 'warn' : 'check', 16)} ${v.empty || 0} of ${v.tables} empty at closing · ${emptyRisk ? `${Math.round(CFG.emptyTables.chance * 100)}% chance of −1 ★` : 'safe'}</span></section>${cardsTonight(shown)}</aside></div>`;
+    const waste = left ? `<div class="callout2 waste"><span class="bi" aria-hidden="true">🗑️</span><span><b>${day1 ? `${left} of your ${CFG.freeFood} free plates went to waste.` : `${plural(left, 'plate')} ${left === 1 ? 'goes' : 'go'} bad tonight.`}</b>${day1 ? "Food doesn't keep overnight. Tomorrow you pay for every plate, so buy only what you'll serve." : "Food doesn't keep overnight. That's money in the bin."}</span></div>`
+      : '<div class="callout2 ok"><span class="bi" aria-hidden="true">✓</span><span><b>No leftovers.</b>Every plate was served. Nothing wasted.</span></div>';
+    return shell(fhead('Closing time', `Day ${S.round} is done. Here's what's left in your restaurant.`, c.html) + svcFloor(s, v, shown, null, { closed: true }) + waste,
+      starCheck(v.turned, `${v.turned} unhappy`) + box(`${lab('Empty tables check')}<span class="vline ${emptyRisk ? 'neg' : 'pos'}">${emptyRisk ? '⚠' : '✓'} ${v.empty || 0} of ${v.tables} empty at closing · ${emptyRisk ? `${Math.round(CFG.emptyTables.chance * 100)}% chance of −1 ★` : 'safe'}</span>`),
+      `<button class="cta" data-act="svcdone">${v.turned ? 'Close for the day →' : `See how day ${S.round} went →`}</button>`);
   }
   // running: guests come in, +$ pops when they pay
   const lastSt = shown[shown.length - 1], line = lastSt && logLine(lastSt, s);
   const nextArr = v.out.slice(sv.idx).find(x => x.k === 'arrive');
-  const pop = lastSt && lastSt.k === 'arrive' && lastSt.seated ? `+$${lastSt.seated * ((sc.arrivals.find(x => x.src === lastSt.src) || { price: L.price }).price)}` : '';
-  const nextLine = nextArr ? `Next in line: ${plural(nextArr.n, nextArr.noTable ? 'delivery order' : 'guest')}${BADGE[nextArr.src] && nextArr.src !== 'regulars' ? ` (${esc(srcName(nextArr.src, s))})` : ''}.` : '';
-  return `<div class="game"><section class="panel lift">${head('Doors open!', rule, c)}${svcFloor(s, v, shown, null, { next: nextArr && nextArr.src !== 'regulars' ? nextArr : (nextArr ? { n: nextArr.n, src: '' } : null), pop })}
-    <div class="banner" role="status"><span class="bell" aria-hidden="true">🛎️</span><span class="t">${line ? esc(line) : 'Opening up…'} ${nextLine ? `<span>${nextLine}</span>` : ''}</span>${ff}</div></section>
-    <aside class="stack">${starCheck(c.away, 'right now')}${cardsTonight(shown)}${logPanel(shown)}</aside></div>`;
+  const popEach = lastSt && lastSt.k === 'arrive' && lastSt.seated ? `+$${((sc.arrivals.find(x => x.src === lastSt.src) || { price: L.price }).price)}` : '';
+  const badge = nextArr && BADGE[nextArr.src] && nextArr.src !== 'regulars' ? nextArr : null;
+  const freeT = Math.max(0, v.tables - v.usedT);
+  const nextLine = nextArr ? `Next in line: ${plural(nextArr.n, nextArr.noTable ? 'delivery order' : 'guest')}, room for ${plural(freeT, 'table')} and ${plural(v.ingr, 'plate')}.` : '';
+  const ff = `<button class="btn ffb" data-act="fast">${ART.icon('ff', 12)} ${sv.fast ? 'Normal speed' : 'Fast-forward'}</button>`;
+  return shell(fhead('Doors open!', rule, c.html) + svcFloor(s, v, shown, null, { next: nextArr ? { n: nextArr.n, src: badge ? nextArr.src : '' } : null, popN: popEach ? lastSt.seated : 0, popEach })
+      + `<div class="legend2">${badge ? `<span class="gb2 sm ${badge.src === 'swamp' ? 'rival' : ''}">${BADGE[badge.src]}</span><span>brought by ${esc(srcName(badge.src, s))}</span>` : ''}<span>${nextLine}</span></div>
+      <div class="banner2" role="status"><span class="bell" aria-hidden="true">🛎️</span><b>${line ? esc(line) : 'All good so far. Nothing to do until something runs out.'}</b>${ff}</div>`,
+    starCheck(c.away, 'right now') + cardsTonight(shown));
 }
+const CARDART = id => (adFace(id).art || '•');
 
 // ---------- sorry vouchers: a pop-up after service, before the recap ----------
 function voucherHTML(s) {
   const S = app.S, v = S.service[s], p = S.players[s], k = S.waiting[s], o = other(s);
-  const back = `<div class="game"><section class="panel lift">${titleHTML('Closing time', `Day ${S.round} is done.`)}</section><aside class="stack">${starCheck(v.turned, `${v.turned} unhappy`)}</aside></div>`;
   if (!k) {
     const note = v.turned > 0 && !S.submitted[s] && p.cash < CFG.voucher ? `You turned away ${plural(v.turned, 'guest')}, but don't have $${CFG.voucher} for a voucher.` : 'Done. The recap is next.';
-    return back + `<div class="vmodal" role="dialog" aria-modal="true" aria-label="Sorry vouchers"><div class="vcard"><span class="eyebrow">After service</span><b class="vh">${note}</b>${waitCard(o)}</div></div>`;
+    return `<div class="vpage"><section class="card2 vcard2" aria-label="Sorry vouchers">${lab('After service')}<b class="vh2">${note}</b>${waitBox(o)}</section></div>`;
   }
   const f = F({ n: 0 }), max = Math.min(v.turned, Math.floor(p.cash / CFG.voucher));
   if (f.n > max) f.n = max;
   const res = n => { const u = v.turned - n; return u === 0 ? 'no star lost' : u <= 3 ? '−1 ★' : '−2 ★'; };
   const faces = Array.from({ length: Math.min(v.turned, 12) }, (_, i) => {
     const on = i < f.n, can = i < max;
-    return `<button type="button" class="face ${on ? 'on' : ''}" data-act="vface" data-i="${i}" aria-pressed="${on}" ${can ? '' : 'disabled'} aria-label="Guest ${i + 1}: ${on ? 'voucher sent' : `send a $${CFG.voucher} voucher`}"><span class="em">${on ? '😊' : '😞'}</span><span>${on ? '🎟️ voucher sent' : can ? `tap to send $${CFG.voucher}` : 'not enough cash'}</span></button>`;
+    return `<button type="button" class="face2 ${on ? 'on' : ''}" data-act="vface" data-i="${i}" aria-pressed="${on}" ${can ? '' : 'disabled'} aria-label="Guest ${i + 1}: ${on ? 'voucher sent' : `send a $${CFG.voucher} voucher`}"><span class="em">${on ? '😊' : '😞'}</span><span>${on ? '🎟️ voucher sent' : can ? `tap to send $${CFG.voucher}` : 'not enough cash'}</span></button>`;
   }).join('');
   const boxes = Array.from({ length: Math.min(v.turned, 8) + 1 }, (_, n) => n).filter(n => n <= max);
   const u = v.turned - f.n, need = u > 3 ? u - 3 : u;
   const hint = f.n >= max && u > 0 ? `That's all your cash allows.` : u === 0 ? 'Nobody counts against your stars.' : need <= max - f.n
     ? `Send ${need} more and you ${u > 3 ? 'lose only 1 star instead of 2' : 'keep your star'}. In the score, a star is worth $${CFG.starValue}.` : `In the score, a star is worth $${CFG.starValue}.`;
-  return back + `<div class="vmodal" role="dialog" aria-modal="true" aria-labelledby="vh"><div class="vcard">
-    <span class="eyebrow">After service</span><b class="vh gold" id="vh">${plural(v.turned, 'guest')} left unhappy</b>
-    <span class="sub">Send a $${CFG.voucher} sorry voucher. Guests who get one don't count against your stars.</span>
-    <div class="faces">${faces}</div>${v.turned > 12 ? `<span class="hint">Showing 12 of ${v.turned} guests.</span>` : ''}
-    <div style="display:grid;gap:8px"><span class="hint" style="font-weight:600">Your star result</span>
-      <div class="vres">${boxes.map(n => `<div class="${n === f.n ? 'on' : ''} ${res(n) === 'no star lost' ? 'ok' : ''}"><span>${n} sent · $${n * CFG.voucher}</span><b>${res(n)}</b></div>`).join('')}</div>
-      <span class="vhint">${hint}</span></div>
-    <div class="vbtns"><button class="ghostbtn" data-act="voucher" data-n="0">Don't send any</button><button class="cta" data-act="voucher" ${f.n ? '' : 'disabled'}>${f.n ? `Send ${plural(f.n, 'voucher')} (${usd(f.n * CFG.voucher)})` : 'Tap a face to send one'}</button></div>
-  </div></div>`;
+  return `<div class="vpage"><section class="card2 vcard2" role="dialog" aria-labelledby="vh">
+    ${lab('After service')}<h1 class="funt" id="vh">${plural(v.turned, 'guest')} left unhappy</h1>
+    <span class="fsub">Send a $${CFG.voucher} sorry voucher. Guests who get one don't count against your stars.</span>
+    <div class="faces2">${faces}</div>${v.turned > 12 ? `<span class="fnote">Showing 12 of ${v.turned} guests.</span>` : ''}
+    <div class="vres2"><span class="vl">Your star result</span><div>${boxes.map(n => `<div class="${n === f.n ? 'on' : ''} ${res(n) === 'no star lost' ? 'ok' : ''}"><span>${n} sent · $${n * CFG.voucher}</span><b>${res(n)}</b></div>`).join('')}</div>
+      <span class="vhint2">${hint}</span></div>
+    <div class="vbtns2"><button class="obtn" data-act="voucher" data-n="0">Don't send any</button>${f.n ? `<button class="cta" data-act="voucher">Send ${plural(f.n, 'voucher')} (${usd(f.n * CFG.voucher)})</button>` : '<span class="fnote center">Tap a face to send a voucher.</span>'}</div>
+  </section></div>`;
 }
 
 // ---------- recap ----------
