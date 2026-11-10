@@ -372,7 +372,6 @@ input[type=text]{font:inherit;font-size:16px;padding:12px 14px;border-radius:12p
 .acard{--c:#6B8AFF;--d:#3A4FB8;--p:#E3E9FF;appearance:none;position:relative;display:flex;flex-direction:column;gap:7px;padding:11px;border-radius:18px;background:var(--c);border:4px solid #0B0B0D;
   box-shadow:0 6px 0 var(--d);color:#fff;text-align:left;font:inherit;min-height:286px;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}
 .acard.rival{--c:#F0569A;--d:#A82E66;--p:#FFE1EE}
-.acard.gamble{outline:3px dashed #FFD21F;outline-offset:4px}
 button.acard:hover:not(:disabled){transform:translateY(-6px)}
 .acard.on{transform:translateY(-10px);box-shadow:0 6px 0 var(--d),0 0 0 4px var(--surface),0 0 0 7px var(--c)}
 .acard.poor{filter:grayscale(.8);opacity:.5;cursor:default}

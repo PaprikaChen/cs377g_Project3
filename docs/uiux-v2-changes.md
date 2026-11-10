@@ -73,7 +73,7 @@ Start screen copy: "The Golden Spoon final · 5 days · $100" / "You used to coo
 - Each card: name + price on top, a big **emoji art** placeholder, a **big effect line** (+2 👤, −2 👤, +6 👤…), one short line, and a **keyword tag** at the bottom.
 - Keyword tags (explained in a legend):
   - ✓ SURE: always happens.
-  - 🎲 GAMBLE xx%: might do nothing at all (dashed gold edge).
+  - 🎲 GAMBLE xx%: might do nothing at all.
   - ? IF THEY'RE FULL / ? IF THEY RUSH FOOD: only works if something else is true. The tag says the condition.
   - ∞ LASTING: keeps working on later days.
   - 🃏 BLUFF: does nothing, just makes them worry.
