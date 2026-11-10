@@ -96,12 +96,15 @@ SCREENS = [
   ('01-landing', "__shot.home()"),
   ('02-how-to-play', "__shot.home(); document.querySelector('[data-act=howto]').click(); document.querySelector('[data-act=howto-sec][data-sec=day]').click()"),
   ('03-intro', "__shot.load(__shot.playTo('shot0', 'pick'), 'p1', { intro: 0 })"),
+  ('03b-intro-final', "__shot.load(__shot.playTo('shot0', 'pick'), 'p1', { intro: 4 })"),
   ('04-pick', "__shot.load(__shot.playTo('shot0', 'pick'))"),
   ('05-practice-cover', "__shot.load(__shot.playTo('shot0', 'invest', 1), 'p2', { cover: true })"),
-  ('06-build-day1', "__shot.load(__shot.playTo('shot0', 'invest', 1), 'p1', { form: { tables: 2, choice: null } })"),
-  ('07-build-booking', "{ const g = __shot.find('invest', 2, S => S.events.p1.type === 'noshow'); __shot.load(g, 'p1', { form: { tables: 1, choice: 'hold' } }) }"),
-  ('08-build-shady-unanswered', "{ const g = __shot.find('invest', 2, S => S.events.p1.type === 'shady'); __shot.load(g, 'p1', { form: { tables: 0, choice: null } }) }"),
-  ('09-build-robbed', "{ const g = __shot.find('invest', null, S => S.round > 1 && S.morning.p1 && S.morning.p1.robbed > 0); if (g) __shot.load(g, 'p1', { form: { tables: 0, choice: null } }) }"),
+  ('05b-gift-day1', "__shot.load(__shot.playTo('shot0', 'invest', 1), 'p1', { form: { tables: 0, choice: null } })"),
+  ('06-build-day1', "__shot.load(__shot.playTo('shot0', 'invest', 1), 'p1', { form: { tables: 2, choice: null, gift: true, offer: true } })"),
+  ('07a-morning-booking', "{ const g = __shot.find('invest', 2, S => S.events.p1.type === 'noshow'); __shot.load(g, 'p1', { form: { tables: 0, choice: 'hold' } }) }"),
+  ('07-build-booking', "{ const g = __shot.find('invest', 2, S => S.events.p1.type === 'noshow'); __shot.load(g, 'p1', { form: { tables: 1, choice: 'hold', offer: true } }) }"),
+  ('08-morning-shady-unanswered', "{ const g = __shot.find('invest', 2, S => S.events.p1.type === 'shady'); __shot.load(g, 'p1', { form: { tables: 0, choice: null } }) }"),
+  ('09-build-robbed', "{ const g = __shot.find('invest', null, S => S.round > 1 && S.morning.p1 && S.morning.p1.robbed > 0 && S.events.p1.type === 'quiet'); if (g) __shot.load(g, 'p1', { form: { tables: 0, choice: null } }) }"),
   ('10a-market-briefing', "{ const g = __shot.playTo('shot0', 'market', 2); __shot.load(g, 'p1', { market: { owner: {}, elapsed: null } }) }"),
   ('10b-market-waiting-rival', "{ const g = __shot.playTo('shot0', 'market', 2); __shot.load(g, 'p1', { market: { owner: {}, elapsed: null, ready: { p1: Date.now() - 8000 } } }) }"),
   ('10-market', "{ const g = __shot.playTo('shot0', 'market', 2); __shot.load(g, 'p1', { market: { owner: { 0: 'p1', 1: 'p2', 2: 'p2', 4: 'p1', 5: 'p2' }, elapsed: 24, cooling: 4 } }) }"),
@@ -126,7 +129,7 @@ async def main():
             pg = await b.new_page(viewport={'width': 1440, 'height': 900})
             pg.on('pageerror', lambda e, t=theme: errs.append(f'{t}: {e}'))
             await pg.add_init_script(f"localStorage.setItem('rr:theme', '{theme}')")
-            await pg.goto(URL); await pg.wait_for_function('window.__rr && document.querySelector("#bar img")')
+            await pg.goto(URL); await pg.wait_for_function('window.__rr && document.querySelector("#bar .logo")')
             await pg.evaluate(HELPERS); await pg.wait_for_timeout(400)  # fonts
             for name, js in SCREENS:
                 try:
