@@ -5,7 +5,7 @@ from playwright.async_api import async_playwright
 # Usage: python tests/online.test.py http://localhost:8765/index.html
 ORDER = ['[data-act=introskip]', '[data-act=mkstart]', '[data-act=pick]', '[data-act=next]', '[data-act=voucher]', '[data-act=svcdone]',
          '[data-act=svc][data-a=refuse]', '[data-act=svc][data-a=rush]:not([disabled])', '[data-act=svc][data-a=letgo]',
-         '[data-act=play]']
+         '[data-act=flip]', '[data-act=play]', '[data-act=picksel]']
 
 async def step(pg, state):
     try: await _step(pg, state)
@@ -15,6 +15,7 @@ async def _step(pg, state):
     ph = await pg.evaluate('__rr.S && __rr.S.phase')
     if ph == 'invest':
         if await pg.locator('[data-act=choose]').count(): await pg.locator('[data-act=choose]').first.click()
+        if await pg.locator('[data-act=stage]').count(): await pg.locator('[data-act=stage]').first.click(); return  # gift screen, then the offer card
         if await pg.locator('[data-act=invest]:not([disabled])').count(): await pg.locator('[data-act=invest]').click(); return
     if ph == 'market' and await pg.locator('[data-act=mkdone]').count():
         n = state.setdefault('grabs', {}).get(id(pg), 0)
@@ -23,7 +24,7 @@ async def _step(pg, state):
             await free.first.click(); state['grabs'][id(pg)] = n + 1; return
         await pg.locator('[data-act=mkdone]').click(); state['grabs'][id(pg)] = 0; return
     if ph == 'commit' and await pg.locator('[data-act=commit]').count():
-        if not await pg.locator('.ad.on').count() and await pg.locator('[data-act=ad]:not([disabled])').count():
+        if not await pg.locator('.acard.on').count() and await pg.locator('[data-act=ad]:not([disabled])').count():
             await pg.locator('[data-act=ad]:not([disabled])').first.click()
         await pg.locator('[data-act=commit]').click(); return
     for s in ORDER:

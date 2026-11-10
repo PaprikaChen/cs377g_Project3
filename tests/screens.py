@@ -84,7 +84,7 @@ window.__shot = (() => {
     poke();
     return S;
   }
-  function home() { Object.assign(window.__rr, { mode: null, S: null, seed: null, howto: null }); poke(); }
+  function home(extra = {}) { Object.assign(window.__rr, { mode: null, S: null, seed: null, howto: null, invite: null, resume: null, showJoin: false, err: '' }, extra); poke(); }
   // The page only redraws from its own click handler, so click a harmless hidden button
   function poke() { const b = document.createElement('button'); b.dataset.act = 'howto-close'; b.style.display = 'none'; document.body.appendChild(b); b.click(); b.remove(); }
   return { playTo, find, load, home, poke };
@@ -94,10 +94,14 @@ window.__shot = (() => {
 # Each screen: (file name, javascript that sets it up). The javascript runs with window.__shot available.
 SCREENS = [
   ('01-landing', "__shot.home()"),
+  ('01b-returning', "__shot.home({ resume: { code: 'ZXUA', day: 3, started: true, rival: 'Alex', gap: 12 } })"),
+  ('01c-invite', "__shot.home({ invite: { code: 'ZXUA', name: 'Alex' } })"),
+  ('02b-waiting-room', "{ __shot.load(__shot.playTo('shot0', 'pick')); Object.assign(__rr, { mode: 'online', me: 'p1', view: 'p1', code: 'ZXUA', seats: { p1: { uid: 'u1', name: 'Sam' } } }); __shot.poke() }"),
   ('02-how-to-play', "__shot.home(); document.querySelector('[data-act=howto]').click(); document.querySelector('[data-act=howto-sec][data-sec=day]').click()"),
   ('03-intro', "__shot.load(__shot.playTo('shot0', 'pick'), 'p1', { intro: 0 })"),
   ('03b-intro-final', "__shot.load(__shot.playTo('shot0', 'pick'), 'p1', { intro: 4 })"),
   ('04-pick', "__shot.load(__shot.playTo('shot0', 'pick'))"),
+  ('04b-pick-selected', "{ const g = __shot.playTo('shot0', 'pick'); __shot.load(g, 'p1', { form: { loc: 'country' } }) }"),
   ('05-practice-cover', "__shot.load(__shot.playTo('shot0', 'invest', 1), 'p2', { cover: true })"),
   ('05b-gift-day1', "__shot.load(__shot.playTo('shot0', 'invest', 1), 'p1', { form: { tables: 0, choice: null } })"),
   ('06-build-day1', "__shot.load(__shot.playTo('shot0', 'invest', 1), 'p1', { form: { tables: 2, choice: null, gift: true, offer: true } })"),
@@ -110,11 +114,15 @@ SCREENS = [
   ('10-market', "{ const g = __shot.playTo('shot0', 'market', 2); __shot.load(g, 'p1', { market: { owner: { 0: 'p1', 1: 'p2', 2: 'p2', 4: 'p1', 5: 'p2' }, elapsed: 24, cooling: 4 } }) }"),
   ('11-market-last-day', "{ const g = __shot.find('market', 5, S => true, { loc: { p1: 'country', p2: 'country' }, rush: true }); __shot.load(g, 'p1', { market: { owner: { 0: 'p2' }, elapsed: 5 } }) }"),
   ('12-ads', "{ const g = __shot.playTo('shot0', 'commit', 2); const sh = g.S.shops.p1; __shot.load(g, 'p1', { form: { sel: [sh.self[0], sh.rival[0]] } }) }"),
-  ('13-service-ready', "{ const g = __shot.playTo('shot0', 'service', 2); __shot.load(g, 'p1', { svc: { started: false, idx: 0, closed: 0 } }) }"),
+  ('13a-cards-flip', "{ const g = __shot.playTo('shot0', 'service', 2); __shot.load(g, 'p1', { svc: { started: false, idx: 0, closed: 0, flip: 1 } }) }"),
+  ('13-service-ready', "{ const g = __shot.playTo('shot0', 'service', 2); __shot.load(g, 'p1', { svc: { started: false, idx: 0, closed: 0, flip: 99 } }) }"),
+  ('13b-service-running', "{ const g = __shot.playTo('shot0', 'service', 2); __shot.load(g, 'p1', { svc: { idx: 2, closed: 0, flip: 99 } }) }"),
   ('14-service-shortage', "{ const g = __shot.find('service', 2, S => { const v = serviceRun(S, 'p1', [], 0); return v.pending && v.pending.kind === 'short'; }, { tables: 0, food: 2 }); const v = serviceRun(g.S, 'p1', [], 0); __shot.load(g, 'p1', { svc: { idx: v.out.length, closed: 0 } }) }"),
   ('15-service-food-request', "{ const g = __shot.find('service', null, S => { for (let c = 0; c < 8; c++) { const v = serviceRun(S, 'p1', [], c); if (v.pending && v.pending.kind === 'food') return true; if (!v.pending) return false; } return false; }); let c = 0, v; for (; c < 8; c++) { v = serviceRun(g.S, 'p1', [], c); if (v.pending && v.pending.kind === 'food') break; } __shot.load(g, 'p1', { svc: { idx: v.out.length, closed: c } }) }"),
+  ('16a-closing-day1-waste', "{ const g = __shot.playTo('shot0', 'service', 1, { noAds: true }); const v = serviceRun(g.S, 'p1', []); __shot.load(g, 'p1', { svc: { idx: v.out.length, closed: 99 } }) }"),
   ('16-service-closing', "{ const g = __shot.playTo('shot0', 'service', 3, { rush: true }); const v = serviceRun(g.S, 'p1', []); __shot.load(g, 'p1', { svc: { idx: v.out.length, closed: 99 } }) }"),
   ('17-vouchers', "{ const g = __shot.find('voucher', null, S => !!S.waiting.p1); __shot.load(g, 'p1', { form: { n: 1 } }) }"),
+  ('17b-vouchers-three', "{ const g = __shot.find('voucher', null, S => !!S.waiting.p1 && S.service.p1.turned >= 3); if (g) __shot.load(g, 'p1', { form: { n: 2 } }) }"),
   ('18-recap', "__shot.load(__shot.playTo('shot0', 'report', 3, { rush: true }))"),
   ('19-final', "__shot.load(__shot.find('over', null, S => S.result.reason === 'done', { loc: { p1: 'country', p2: 'country' }, rush: true }))"),
   ('20-final-closed', "{ const g = __shot.find('over', null, S => S.result.reason === 'bankrupt', { tables: 3, food: 6 }); if (g) __shot.load(g, 'p1') }"),
@@ -129,7 +137,7 @@ async def main():
             pg = await b.new_page(viewport={'width': 1440, 'height': 900})
             pg.on('pageerror', lambda e, t=theme: errs.append(f'{t}: {e}'))
             await pg.add_init_script(f"localStorage.setItem('rr:theme', '{theme}')")
-            await pg.goto(URL); await pg.wait_for_function('window.__rr && document.querySelector("#bar .logo")')
+            await pg.goto(URL); await pg.wait_for_function('window.__rr && document.querySelector("#bar .tools")')
             await pg.evaluate(HELPERS); await pg.wait_for_timeout(400)  # fonts
             for name, js in SCREENS:
                 try:
