@@ -1,4 +1,4 @@
-# Restaurant Rivals · notes for Claude
+# Spoon Fight (was Restaurant Rivals) · notes for Claude
 
 Project context for Claude (in chat or in Claude Code). Read all of it before making changes.
 
@@ -20,7 +20,8 @@ A two-player web game that teaches restaurant management to players aged 13+. It
 | `art.js` | SVG drawings, display only: `ART.icon(name)` small icons, `ART.stars(n)`, `ART.plate()`, and `ART.floor(o)`, the top-down floor plan (dining room up to 14 tables, kitchen with one plate per food, patio for borrowed tables, the queue and unhappy guests outside) used by Build and Service |
 | `style.css` | Styles (UI v3, "minimal premium"); colors are `:root` tokens with light and dark themes. You = cobalt `--you`, rival = magenta `--rival`, main buttons use the logo red (`.cta`), celebration numbers use the gold logo lettering (`.gold`) |
 | `assets/` | `key-art.jpg` (landing + final results), `logo.jpg` (header), `countryside.jpg` / `city.jpg` (pick screen) |
-| `docs/mockups/` | The agreed design for every screen (PNG). Match these when changing the UI |
+| `docs/mockups/` | The earlier agreed design for every screen (PNG) |
+| `docs/uiux-v2-changes.md` | The UI/UX v2 changes (agreed on the mockup canvas): what each screen does now and why. Match this when changing the UI |
 | `index.html` | Entry; loads `firebase-config.js` → `engine.js` → `app.js` |
 | `firebase-config.js` | Firebase web config (public values, safe to commit) |
 | `firestore.rules` | Security rules. **After changing them, a person must paste them into the Firebase console and publish** |
@@ -35,11 +36,14 @@ A two-player web game that teaches restaurant management to players aged 13+. It
 5. **Interactive service**: `prepService()` rolls everything random for the day into `S.script[seat]` (card outcomes, the day's event, booking/inspector rolls). `serviceRun(S, seat, ops, closed)` is shared by engine and page: it plays the script with the player's choices `ops` (`{ep, a:'rush'|'borrow'}` per shortage episode, `{a:'food', give}`) and, when `closed` is finite, stops at the first open shortage / unanswered choice and returns it as `pending`. The page (`serviceTick()`, `svcAction()`) runs the patience ring and delivery bars in real time and logs `{k, ops}` when the player closes for the day; `finishService()` replays it. Prices and borrow refusals come from `opPrice()` / `borrowOk()` (seeded per episode and try). A new random element needs a field in the script plus its text in `logLine()` (and `adResult()` for a card).
 6. **Rendering while live**: during market and service the page ticks every 200ms but only re-renders when `liveSig()` changes; bars and rings (`data-t0/t1`, plus `data-ring` for rings) and countdowns (`data-count`) are moved in place by `updateBars()`. Don't re-render on every tick: replacing buttons under the pointer drops clicks.
 7. **Private information**: each player's morning event (shady deal, booking) and its outcome are shown only to them; see the offer cards in `buildHTML()`, `PRIVATE_LINES` and `PRIVATE_WHY` in `app.js`.
-8. **Text and rules**: on-screen text is plain language for a 13-year-old: say what happened to the player and why, effect first, no engine jargon; odds only where the player decides (Ads). Every button on screen must work: unavailable actions are explained in text, not shown as disabled buttons. Rules live in the How to play drawer (`howtoHTML()` in `app.js`), built from `CFG` numbers. Card descriptions shown to players come from `adText()` / `adResult()` / `trickResult()` and are a plain-language rewrite of `CFG.ads` text: the team owns that wording.
+8. **Text and rules**: on-screen text is plain language for a 13-year-old: say what happened to the player and why, effect first, no engine jargon; odds only where the player decides (Ads). Every button on screen must work: unavailable actions are explained in text, not shown as disabled buttons. Rules live in the How to play drawer (`howtoHTML()` in `app.js`), built from `CFG` numbers. Card faces shown to players come from `adFace()` (emoji art, big effect, short line, keyword tag), and results from `adResult()` / `trickResult()` / `flipStamp()`; they and are a plain-language rewrite of `CFG.ads` text: the team owns that wording.
 9. **Placeholder numbers**: values marked TBD in `CFG` comments (ad cards, service prices and chances, event numbers) are placeholders until the team settles them.
 10. **Same version on both sides**: both players must run the same `engine.js`, or they'll compute different results. Changing rules or numbers recomputes games in progress under the new rules. Remind the team to change versions between games and have both players refresh.
-11. **Morning step**: the engine still has a separate `morning` phase; the page acknowledges it automatically in `refresh()` and shows the morning news (rent, deliveries, robbery, broken tables) at the top of Build.
+11. **Morning step**: the engine still has a separate `morning` phase; the page acknowledges it automatically in `refresh()`. Inside `invest` the page shows up to three screens, tracked in the form state (`f.gift`, `f.offer`): the day 1 gift (`giftHTML()`), the secret offer card on event days (`offerHTML()`), then the tables (`buildHTML()`).
+13. **Day 1**: there is no Market. `CFG.freeFood` plates are put in the kitchen in `startRound()`, and `apply('invest')` goes straight to `commit` on day 1. The top bar shows 4 steps that day (`stepsFor()`).
+14. **Service screens**: before the doors open the ad cards flip one at a time (`sv.flip`, `flipList()`); then running, shortage, food request and closing each have their own layout with the star check (`starCheck()`) on the right. Vouchers are a pop-up (`voucherHTML()`, `.vmodal`) over the closed restaurant.
 12. **One-screen practice**: before steps with secrets (`PRIVATE_PHASES`: pick, invest, commit) a cover screen (`coverHTML()`) asks the other player to look away.
+15. **Start screens**: `lobbyHTML()` shows the invite page when the URL has `?room=CODE` (`app.invite`, set in `boot()`), the "still going" card when this device has an unfinished game (`app.resume`, from `loadResume()`), otherwise the first-visit page. Online, until seat p2 is taken, the game shows the waiting room (`roomHTML()`, `inRoom()`) instead of the story. Story pictures are `ART.story(i, rivalName)`; pick needs a tap to select (`picksel`, `f.loc`) and then the Open button.
 
 ## Firestore data
 

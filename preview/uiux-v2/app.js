@@ -17,7 +17,8 @@ const app = {
   nick: (lsGet('nick') || '').slice(0, 12), S: null, form: {}, priv: {}, revealing: {}, unsub: [], chain: Promise.resolve(),
   err: '', busy: false, loadNote: '', intro: 0,
   mkt: null, mktUnsub: null, cool: {}, claiming: {}, svc: {}, ticker: null,
-  howto: null, cover: null, acked: {}
+  howto: null, cover: null, acked: {},
+  invite: null, resume: null, showJoin: false
 };
 
 window.__rr = app; // debugging: type __rr.S in the browser console to see the game state
@@ -44,7 +45,7 @@ const poss = s => (app.mode !== 'local' && s === app.me ? 'Your' : `${esc(nameOf
 (async () => {
   // Test hook: automated tests can inject a fake backend; absent in normal use
   if (typeof window.__RR_FAKE_FB === 'function') {
-    app.fb = window.__RR_FAKE_FB(); app.uid = app.fb.uid; app.dbReady = true; app.dbMsg = ''; return setTimeout(render, 0); // after the whole module has loaded
+    app.fb = window.__RR_FAKE_FB(); app.uid = app.fb.uid; app.dbReady = true; app.dbMsg = ''; return setTimeout(boot, 0); // after the whole module has loaded
   }
   const cfg = window.FIREBASE_CONFIG || {};
   if (!cfg.apiKey || !cfg.projectId) {
@@ -85,8 +86,49 @@ const poss = s => (app.mode !== 'local' && s === app.me ? 'Your' : `${esc(nameOf
       : c === 'auth/unauthorized-domain' ? "This site isn't on Firebase's authorized domains yet. Add it under Authentication settings."
       : "Can't reach the server. Check your connection and refresh, or try Local test.";
   }
-  render();
+  if (app.dbReady) boot(); else render();
 })();
+
+// Start-up: an invite link (?room=CODE) opens the invite page; otherwise look for an unfinished game on this device.
+const clearRoomParam = () => { if (location.search) try { history.replaceState(null, '', location.pathname); } catch (e) {} };
+async function boot() {
+  const q = new URLSearchParams(location.search).get('room');
+  if (q) {
+    const code = q.trim().toUpperCase();
+    try {
+      const g = /^[A-Z0-9]{4}$/.test(code) && await app.fb.get(`games/${code}`);
+      if (g && g.exists) {
+        const [x, y] = await Promise.all(['p1', 'p2'].map(s => app.fb.get(`games/${code}/seats/${s}`)));
+        if (x.exists && x.data.uid === app.uid) return enter(code, 'p1');
+        if (y.exists && y.data.uid === app.uid) return enter(code, 'p2');
+        if (y.exists && y.data.uid) app.err = `Room ${code} already has two players. Ask your old partner for a new link.`;
+        else { app.invite = { code, name: x.exists ? String(x.data.name || '').slice(0, 12) : '' }; return render(); }
+      } else app.err = `No room called ${code}. Ask your old partner for a new link.`;
+    } catch (e) { app.err = writeErr(e); }
+    clearRoomParam();
+  }
+  await loadResume(); render();
+}
+// The last room this device played in, if that game isn't over: shown as "Your game is still going"
+async function loadResume() {
+  app.resume = null;
+  const code = lsGet('lastCode');
+  if (!code || !app.fb) return;
+  try {
+    const g = await app.fb.get(`games/${code}`); if (!g.exists) return;
+    const seat = await Promise.all(['p1', 'p2'].map(s => app.fb.get(`games/${code}/seats/${s}`)));
+    const i = seat.findIndex(x => x.exists && x.data.uid === app.uid); if (i < 0) return;
+    const me = i ? 'p2' : 'p1', o = i ? 'p1' : 'p2', them = seat[1 - i];
+    const log = x => (x.exists && Array.isArray(x.data.log) ? x.data.log : []);
+    const S = simulate(g.data.seed, { p1: log(seat[0]), p2: log(seat[1]) });
+    if (S.phase === 'over') return;
+    // Compare at the end of the last day both played, so nothing secret from today shows
+    const h = s => S.players[s].history, d = Math.min(h(me).length, h(o).length);
+    const sc = s => { const e = h(s)[d - 1]; return e.cash + e.stars * CFG.starValue; };
+    app.resume = { code, day: Math.max(1, S.round), started: S.phase !== 'pick',
+      rival: them.exists && them.data.uid ? String(them.data.name || '').slice(0, 12) || 'Rival' : '', gap: d ? round2(sc(me) - sc(o)) : null };
+  } catch (e) {}
+}
 
 function writeErr(e) {
   const c = e && e.code || '';
@@ -139,7 +181,7 @@ function enter(code, seat) {
   leave(true);
   Object.assign(app, { mode: 'online', code, me: seat, view: seat, seed: null, seats: {}, logs: { p1: [], p2: [] },
     S: null, form: {}, revealing: {}, err: '', loadNote: '' });
-  lsSet('lastCode', code);
+  lsSet('lastCode', code); app.invite = null; app.showJoin = false; clearRoomParam();
   const timer = setTimeout(() => { if (!app.seed) { app.loadNote = "Can't reach the game yet. Still trying…"; render(); } }, 10000);
   app.unsub.push(app.fb.watchDoc(`games/${code}`, snap => {
     if (snap.exists) { app.seed = snap.data.seed; clearTimeout(timer); app.loadNote = ''; refresh(); }
@@ -160,7 +202,7 @@ function enter(code, seat) {
 function leave(silent) {
   app.unsub.forEach(u => { try { u(); } catch (e) {} }); app.unsub = [];
   resetLive();
-  if (!silent) { Object.assign(app, { mode: null, code: null, S: null, seed: null, err: '' }); render(); }
+  if (!silent) { Object.assign(app, { mode: null, code: null, S: null, seed: null, err: '' }); render(); loadResume().then(render); }
 }
 function startLocal() {
   leave(true);
@@ -351,7 +393,7 @@ function marketTick() {
 // ---------- service: play the day back, pausing for shortages and choices ----------
 function svcState(s) {
   const key = `${app.code}:${app.seed}:${app.S.round}:${s}`;
-  if (!app.svc[s] || app.svc[s].key !== key) app.svc[s] = { key, started: false, idx: 0, closed: 0, ops: [], busy: null, waitAt: null, last: 0, fast: false, msg: '' };
+  if (!app.svc[s] || app.svc[s].key !== key) app.svc[s] = { key, started: false, idx: 0, closed: 0, ops: [], busy: null, waitAt: null, last: 0, fast: false, msg: '', flip: 0 };
   return app.svc[s];
 }
 function serviceTick() {
@@ -401,7 +443,7 @@ function F(defaults) {
 // =====================================================================
 // Rendering (UI v3). Every screen is built from plain words: what happened to you, and why.
 // =====================================================================
-const V = 'v4';
+const V = 'v5';
 const IMG = { art: `assets/key-art.jpg?v=${V}`, country: `assets/countryside.jpg?v=${V}`, city: `assets/city.jpg?v=${V}` };
 const STEPS = [['invest', 'Build'], ['market', 'Market'], ['commit', 'Ads'], ['service', 'Service'], ['report', 'Recap']];
 // Day 1 has no Market (free food instead), so its bar has 4 steps
@@ -458,11 +500,16 @@ const miniStars = (n, cls) => `<span class="ministars ${cls}" role="img" aria-la
 // Light / dark theme: follows the computer's setting until the player picks one with the header button (remembered on this device)
 const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 { const t = lsGet('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; }
+// Online, before the second player has joined: the waiting room
+const inRoom = () => app.mode === 'online' && app.S && app.S.phase === 'pick' && !(app.seats.p2 && app.seats.p2.uid);
 function renderBar() {
   const S = app.S, bar = $('#bar');
-  let mid = '', pills = '';
-  if (S && app.mode) {
-    if (S.phase === 'pick') mid = '<span class="day"><b>The Golden Spoon final</b> · pick your spot</span>';
+  let mid = '', pills = '', logo = !!app.mode;
+  if (S && app.mode && !inRoom()) {
+    if (S.phase === 'pick') {
+      logo = false;
+      if (app.intro >= INTRO.length) mid = `<span class="daypill"><span>Day <b>1</b> of ${CFG.rounds}</span><i></i><b class="num">$${CFG.startCash}</b><i></i><span class="gstars" role="img" aria-label="${CFG.startStars} of 5 stars">${'★'.repeat(CFG.startStars)}<span>${'★'.repeat(5 - CFG.startStars)}</span></span></span>`;
+    }
     else if (S.phase === 'over') mid = `<span class="day"><b>Game over</b> · ${S.result.reason === 'bankrupt' ? 'a restaurant closed' : '5 days played'}</span>`;
     else {
       const s = viewer(), o = other(s), p = S.players[s], q = S.players[o];
@@ -472,51 +519,62 @@ function renderBar() {
     }
   }
   let tools = '';
-  if (app.mode === 'online') tools = `<span>Room <b style="color:var(--ink);letter-spacing:.06em">${esc(app.code)}</b> · ${seatTag(app.me)}</span><button class="btn" data-act="copy" aria-label="Copy room code">${ART.icon('copy', 14)}</button>`;
+  if (app.mode === 'online' && !inRoom() && !(S && S.phase === 'pick')) tools = `<span>Room <b style="color:var(--ink);letter-spacing:.06em">${esc(app.code)}</b> · ${seatTag(app.me)}</span><button class="btn" data-act="copy" aria-label="Copy room code">${ART.icon('copy', 14)}</button>`;
   if (app.mode === 'local') tools = `<span>Practice</span>${['p1', 'p2'].map(s => `<button class="btn" data-act="view" data-seat="${s}" aria-pressed="${app.view === s}" style="${app.view === s ? 'border-color:var(--ink)' : ''}">Player ${s === 'p1' ? 1 : 2}${S && S.waiting[s] ? ' •' : ''}</button>`).join('')}`;
-  tools += `<button class="btn" data-act="theme" aria-label="Switch to ${isDark() ? 'light' : 'dark'} theme" title="Switch to ${isDark() ? 'light' : 'dark'} theme">${ART.icon(isDark() ? 'sun' : 'moon', 16)}</button>`;
-  tools += `<button class="btn${app.mode ? ' help' : ''}" data-act="howto" aria-label="How to play" title="How to play">${app.mode ? '?' : 'How to play'}</button>`;
-  if (app.mode) tools += `<button class="btn" data-act="leave">${app.mode === 'local' ? 'Quit' : 'Leave'}</button>`;
-  bar.innerHTML = `<span class="logo">${ART.badge('hd')}</span><div class="mid">${mid}</div>${pills ? `<div class="pills">${pills}</div>` : ''}<div class="tools">${tools}</div>`;
+  tools += `<button class="btn round" data-act="theme" aria-label="Switch to ${isDark() ? 'light' : 'dark'} theme" title="Switch to ${isDark() ? 'light' : 'dark'} theme">${ART.icon(isDark() ? 'sun' : 'moon', 16)}</button>`;
+  if (!inRoom()) tools += `<button class="btn${app.mode ? ' help' : ' pillbtn'}" data-act="howto" aria-label="How to play" title="How to play">${app.mode ? '?' : 'How to play'}</button>`;
+  if (app.mode) tools += inRoom() ? '<button class="linkish quiet" data-act="leave">Leave room</button>' : `<button class="btn" data-act="leave">${app.mode === 'local' ? 'Quit' : 'Leave'}</button>`;
+  bar.classList.toggle('bare', !mid && !pills);
+  bar.innerHTML = `${logo ? `<span class="logo">${ART.badge('hd')}</span>` : ''}<div class="mid">${mid}</div>${pills ? `<div class="pills">${pills}</div>` : ''}<div class="tools">${tools}</div>`;
 }
 
 // ---------- landing ----------
+const initial = n => esc((String(n || '').trim()[0] || '?').toUpperCase());
 function lobbyHTML() {
-  const last = lsGet('lastCode'), ok = app.dbReady && !app.busy;
-  const step = (n, name, icon, d) => `<li><span class="ib">${ART.icon(icon, 20)}</span><span><b>${gold(n, 'sm')}${name}</b><span class="d">${d}</span></span></li>`;
-  return `<div class="landing">
-    <figure class="keyart"><img src="${IMG.art}" alt="Spoon Fight: a cat chef in blue and a dog chef in pink face off under a red-and-white awning">
-      <span class="vs"><span class="dot round you"></span>You<span class="faint">vs</span><span class="dot round rival"></span>Your old partner</span></figure>
-    <section class="pitch">
-      <div style="display:grid;gap:14px">
-        <span class="landing-badge">${ART.badge('ld')}</span>
-        <span class="eyebrow">The Golden Spoon final · ${CFG.rounds} days · $${CFG.startCash}</span>
-        <h1 class="headline"><span>You used to cook together.</span><span class="sub2">Now only one of you gets the Two Spoons back.</span></h1>
-        <p>Open a restaurant with $${CFG.startCash}, grab food before your old partner does, and use ads to pull guests in, or to trip them up. The restaurant with the most cash and best rating after ${CFG.rounds} days wins.</p>
-      </div>
-      ${!app.dbMsg ? '' : app.dbMsg === 'Connecting…' ? '<p class="wait"><span class="dot round you"></span>Connecting to the game server…</p>' : `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.dbMsg)}</span></div>`}
-      <div class="field"><label for="nick-in">Your name <span>· your old partner sees this</span></label>
-        <input type="text" id="nick-in" maxlength="12" autocomplete="nickname" placeholder="e.g. Sam" value="${esc(app.nick)}"></div>
-      ${app.err ? `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.err)}</span></div>` : ''}
-      <div class="choices">
-        <div class="choice-card"><div><b>Start a new game</b><div class="sub">You get a 4-letter code to send to your old partner.</div></div>
-          <button class="cta" data-act="create" ${ok ? '' : 'disabled'}>${app.busy ? 'Making a room…' : 'Create a room'}</button></div>
-        <form class="choice-card" data-form="join"><div><b>Join a game</b><label class="sub" for="code-in">Got a code from your old partner? Type it here.</label></div>
-          <div class="join"><input type="text" id="code-in" maxlength="4" autocomplete="off" placeholder="ABCD" ${app.dbReady ? '' : 'disabled'}><button class="cta" type="submit" ${ok ? '' : 'disabled'}>Join</button></div></form>
-      </div>
-      <div class="row" style="gap:20px">
-        ${last && app.dbReady ? `<button class="resume" data-act="rejoin" data-code="${esc(last)}">Back to your game ${esc(last)} ${ART.icon('arrow', 16)}</button>` : ''}
-        <button class="linkish" data-act="local">New here? Practice alone first</button>
-      </div>
-    </section>
-  </div>
-  <section class="five" aria-label="How a day works">
-    <div class="row" style="justify-content:space-between"><h2 style="font-size:18px">Every day, five steps</h2><span class="muted" style="font-size:13px">After day ${CFG.rounds}, your cash plus $${CFG.starValue} for every star is your score.</span></div>
-    <ol>${step(1, 'Build', 'table', "Buy tables. Answer today's secret offer.")}${step(2, 'Market', 'cart', `${CFG.market.time} seconds. Grab food before your rival does.`)}
-      ${step(3, 'Ads', 'card', 'Buy cards that bring guests, or sabotage your rival.')}${step(4, 'Service', 'person', 'Seat your guests. Each needs a table and a food.')}
-      ${step(5, 'Recap', 'star', 'See what you earned and how your stars changed.')}</ol>
-  </section>
-  <p class="fine">No sign-up needed. Each browser counts as one player, so to try it alone use a second device or a private window.</p>`;
+  const ok = app.dbReady && !app.busy;
+  const note = !app.dbMsg ? '' : app.dbMsg === 'Connecting…' ? '<p class="wait"><span class="dot round you"></span>Connecting to the game server…</p>' : `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.dbMsg)}</span></div>`;
+  const err = app.err ? `<div class="callout bad">${ART.icon('warn', 20)}<span>${esc(app.err)}</span></div>` : '';
+  const name = ph => `<div class="sfield"><label for="nick-in">Your name</label><input type="text" id="nick-in" maxlength="12" autocomplete="nickname" placeholder="${ph}" value="${esc(app.nick)}"${app.invite ? ' class="hi"' : ''}></div>`;
+  const join = label => `<form class="sjoin" data-form="join"><label for="code-in">${label}</label><div class="row1"><input type="text" id="code-in" maxlength="4" autocomplete="off" placeholder="ABCD" ${app.dbReady ? '' : 'disabled'}><button class="obtn" type="submit" ${ok ? '' : 'disabled'}>Join</button></div></form>`;
+  let col;
+  if (app.invite) {
+    const v = app.invite;
+    col = `<div class="shead"><div class="inv"><span class="av rival">${initial(v.name || 'P')}</span><span>Your old partner ${v.name ? `<b>${esc(v.name)}</b> ` : ''}made the final too</span></div>
+        <h1 class="funh">Only one of you gets the Two Spoons back.</h1><span class="smuted">The Golden Spoon final · Room ${esc(v.code)} · they're waiting</span></div>
+      ${note}${name('Type a name your rival will see')}${err}
+      <button class="cta bigc" data-act="joininvite" ${ok ? '' : 'disabled'}>${app.busy ? 'Joining…' : 'Join the game'}</button>
+      <button class="linkish quiet" data-act="noinvite">Not now, start my own game</button>`;
+  } else if (app.resume) {
+    const r = app.resume, gap = r.gap == null ? (r.rival ? 'day 1' : 'waiting for your old partner') : r.gap > 0 ? `you're $${r.gap} ahead` : r.gap < 0 ? `you're $${-r.gap} behind` : "you're tied";
+    col = `<div class="rcard"><span class="eyebrow you">Your game is still going</span>
+        <div class="rl"><b>${r.started || r.rival ? `Day ${r.day} of ${CFG.rounds} vs <span class="rv">${esc(r.rival || 'your old partner')}</span>` : 'Your room is open'}</b><span>Room ${esc(r.code)} · ${gap}</span></div>
+        <button class="cta bigc" data-act="rejoin" data-code="${esc(r.code)}" ${ok ? '' : 'disabled'}>Rejoin the game</button></div>
+      ${note}${err}
+      <div class="alt"><span>Or start something new</span><div class="row1"><button class="obtn" data-act="create" ${ok ? '' : 'disabled'}>${app.busy ? 'Making a room…' : 'Create a new room'}</button><button class="obtn" data-act="showjoin">Join with a code</button></div></div>
+      ${app.showJoin ? join('Type the code from your old partner') : ''}
+      <button class="linkish quiet" data-act="local">Practice alone</button>`;
+  } else {
+    col = `<div class="shead"><span class="eyebrow">The Golden Spoon final · ${CFG.rounds} days · $${CFG.startCash}</span>
+        <h1 class="funh">You used to cook together.</h1><p class="lede">Now only one of you gets the Two Spoons back.</p></div>
+      ${note}${name('e.g. Sam')}${err}
+      <button class="cta bigc" data-act="create" ${ok ? '' : 'disabled'}>${app.busy ? 'Making a room…' : 'Create a room'}</button>
+      ${join('Got a code from your old partner?')}
+      <button class="linkish quiet" data-act="local">New here? Practice alone first</button>`;
+  }
+  return `<div class="start"><figure class="sart"><img src="${IMG.art}" alt="A cat chef in blue and a dog chef in pink clash wooden spoons under The Two Spoons sign"><span class="sbadge">${ART.badge('ld')}</span></figure>
+    <section class="scol">${col}</section></div>`;
+}
+// The waiting room (D2): online, until the second player joins
+function roomHTML() {
+  const me = (app.seats[app.me] && app.seats[app.me].name) || app.nick || 'You';
+  const link = `${location.origin}${location.pathname}?room=${app.code}`;
+  return `<section class="room" aria-label="Waiting room">
+    <div class="rcode"><span class="eyebrow">Your room</span><span class="code">${esc(app.code)}</span></div>
+    <div class="rlink"><span class="lbl">Send this link to your old partner. They join with one tap.</span>
+      <div class="row1"><span class="linkbox">${esc(link)}</span><button class="cta inline" data-act="copylink">${ART.icon('copy', 16)}Copy link</button></div></div>
+    <div class="rseats"><div class="rseat you"><span class="av you">${initial(me)}</span><span><b>${esc(me)}</b><span>You · ready</span></span></div>
+      <div class="rseat empty"><span class="av empty"></span><span><b>Your old partner</b><span>Not here yet</span></span></div></div>
+    <div class="waitpill"><span class="dot round rival"></span><span>Waiting for your old partner to arrive. The final starts as soon as they do.</span></div></section>`;
 }
 
 // ---------- how to play ----------
@@ -602,16 +660,15 @@ function coverHTML(s) {
 function gameHTML() {
   const S = app.S, s = viewer(), o = other(s);
   if (app.mode === 'local' && app.cover === s && PRIVATE_PHASES.includes(S.phase)) return coverHTML(s);
-  const noRival = app.mode === 'online' && S.phase === 'pick' && !(app.seats.p2 && app.seats.p2.uid);
-  const waitRival = noRival ? `<div class="callout"><span class="dot round rival" style="margin-top:6px"></span><span><b>Waiting for your rival to join</b>Send your old partner this page and the code <b style="display:inline;letter-spacing:.08em">${esc(app.code)}</b>.</span></div>` : '';
+  if (inRoom()) return roomHTML();
   // One-screen practice: say whose turn it is (the old "Playing as P1" bar)
   const playing = app.mode === 'local' && S.phase !== 'over' ? `<div class="strip soft"><span class="dot round ${s === 'p1' ? 'you' : 'rival'}"></span><span><b>Playing as ${esc(nameOf(s))}</b> · switch players with the buttons at the top. Look away when it's not your turn.</span></div>` : '';
-  return playing + phaseHTML(s, waitRival);
+  return playing + phaseHTML(s);
 }
-function phaseHTML(s, waitRival) {
+function phaseHTML(s) {
   const S = app.S;
   switch (S.phase) {
-    case 'pick': return waitRival + pickHTML(s);
+    case 'pick': return pickHTML(s);
     case 'morning': return `<section class="panel" style="justify-self:center"><p class="wait"><span class="dot round rival"></span>Opening up for the day…</p></section>`;
     case 'invest': return buildHTML(s);
     case 'market': return marketHTML(s);
@@ -626,47 +683,32 @@ function phaseHTML(s, waitRival) {
 }
 
 // ---------- intro + pick ----------
-// Simple pictures for the story cards (placeholders until the team has illustrations)
-function storyPic(k, s) {
-  const sign = t => `<span class="sign">${t}</span>`;
-  switch (k) {
-    case 'team': return `<div class="spic">${sign('THE TWO SPOONS')}<span class="duo"><i class="you">🐱</i><i class="rival">🐶</i></span></div>`;
-    case 'review': return `<div class="spic"><span class="paper"><b>THE DAILY FORK</b><span>TWO SPOONS FLOPS</span><span class="one">★☆☆☆☆</span></span>${sign('CLOSED')}</div>`;
-    case 'apart': return `<div class="spic"><span class="duo"><i class="you">🐱</i><span class="gap">· · · · ·</span><i class="rival">🐶</i></span></div>`;
-    case 'prize': return `<div class="spic"><span class="prize"><span class="cup">🏆</span><b>THE GOLDEN SPOON</b><span>GRAND PRIZE: THE TWO SPOONS</span></span></div>`;
-    case 'final': return `<div class="spic"><span class="duo"><i class="you">🐱<small>YOU</small></i><b class="gold">VS</b><i class="rival">🐶<small>${esc(nameOf(other(s))).toUpperCase()}</small></i></span></div>`;
-  }
-  return '';
-}
 function pickHTML(s) {
   const S = app.S, k = S.waiting[s], o = other(s);
   if (app.intro < INTRO.length) {
-    const c = INTRO[app.intro], lastCard = app.intro === INTRO.length - 1;
-    return `<section class="intro" aria-label="Story ${app.intro + 1} of ${INTRO.length}"><button class="btn skip" data-act="introskip">Skip story</button>${storyPic(c.pic, s)}<p>${c.t}</p>
-      <div class="dots">${INTRO.map((_, i) => `<i class="${i === app.intro ? 'on' : ''}"></i>`).join('')}</div>
-      <button class="cta inline" data-act="intro">${lastCard ? 'Pick your restaurant →' : 'Next'}</button></section>`;
+    const i = app.intro, lastCard = i === INTRO.length - 1;
+    return `<section class="story" aria-label="Story ${i + 1} of ${INTRO.length}"><div class="stop"><button class="linkish quiet" data-act="introskip">Skip story</button></div>
+      <div class="smid">${ART.story(i, esc(nameOf(o)).toUpperCase())}<p class="cap">${INTRO[i].t}</p></div>
+      <div class="sfoot"><div class="sdots" aria-label="Page ${i + 1} of ${INTRO.length}">${INTRO.map((_, j) => `<i class="${j === i ? 'on' : ''}"></i>`).join('')}</div>
+        <button class="cta inline" data-act="intro">${lastCard ? 'Pick your restaurant →' : 'Next'}</button></div></section>`;
   }
   if (!k) {
     const mine = S.got[s] && S.got[s].loc;
     return `<div class="pick-title"><h1>Good choice!</h1><p class="muted">You're opening in the ${mine === 'city' ? 'City' : 'Countryside'}.</p></div>${waitCard(o, `Once ${esc(nameOf(o))} picks, day 1 begins.`)}`;
   }
+  const f = F({}), sel = f.loc;
   const card = loc => {
-    const L = CFG.loc[loc], O = CFG.loc[loc === 'city' ? 'country' : 'city'];
-    const tag = (better, word) => (better ? ` <span class="better">${word}</span>` : '');
-    const only = Object.values(CFG.ads).filter(a => a.loc === loc).map(a => a.name.toLowerCase());
-    const lead = loc === 'city' ? 'Pricier to run, with fewer tables. Each guest pays more.' : 'Cheap to run, with room for more guests. Each guest pays less.';
-    const extra = loc === 'country' ? ' Kind villagers sometimes bring food when you run short.' : '';
-    return `<article class="pick"><div class="pic"><img src="${IMG[loc === 'city' ? 'city' : 'country']}" alt="${loc === 'city' ? 'A busy city restaurant with skyscrapers and a train behind it' : 'A cosy stone restaurant with a farm and cows behind it'}">${gold(L.name)}</div>
-      <div class="in"><p class="lead">${lead}</p>
-        <dl class="cmp"><dt>Costs to open</dt><dd>$${L.open}${tag(L.open < O.open, 'cheaper')}</dd><dt>Rent every morning</dt><dd>$${L.rent}${tag(L.rent < O.rent, 'cheaper')}</dd>
-          <dt>Tables to start</dt><dd>${L.tables}${tag(L.tables > O.tables, 'more')}</dd><dt>Each guest pays</dt><dd>$${L.price}${tag(L.price > O.price, 'more')}</dd>
-          <dt>Cash left after day 1's costs</dt><dd>$${CFG.startCash - L.open - L.rent}</dd></dl>
-        <div class="only"><b>Only in the ${loc === 'city' ? 'city' : 'countryside'}</b><span>Ads like ${only.slice(0, -1).join(', ')} or ${only.slice(-1)}.${extra}</span></div>
-        <button class="cta" data-act="pick" data-loc="${loc}">Open in the ${L.name}</button></div></article>`;
+    const L = CFG.loc[loc], on = sel === loc;
+    const tile = (v, l) => `<span class="st"><b>${v}</b><span>${l}</span></span>`;
+    return `<button type="button" class="pickc${on ? ' on' : ''}" data-act="picksel" data-loc="${loc}" aria-pressed="${on}">
+      <span class="pic"><img src="${IMG[loc === 'city' ? 'city' : 'country']}" alt="${loc === 'city' ? 'A busy city restaurant with skyscrapers and a train behind it' : 'A cosy stone restaurant with a farm and cows behind it'}">${on ? '<span class="chip">Selected</span>' : ''}</span>
+      <span class="in"><span class="nm"><b>${L.name}</b><span>${loc === 'city' ? 'Fewer seats, bigger bills' : 'More seats, cheaper'}</span></span>
+        <span class="stats">${tile(L.tables, 'tables')}${tile('$' + L.price, 'per guest')}${tile('$' + (CFG.startCash - L.open - L.rent), 'left after opening')}</span></span></button>`;
   };
-  return `<div class="pick-title"><h1>Where will you open your restaurant?</h1><p class="muted">You have <b style="color:var(--ink)">$${CFG.startCash}</b>. You'll stay in the same spot for all ${CFG.rounds} days, so choose carefully.</p></div>
+  return `<div class="pick-title"><h1>Where will you open?</h1><p class="muted">The contest gives you $${CFG.startCash} and an empty space. Pick one.</p></div>
     <div class="picks">${card('country')}${card('city')}</div>
-    <p class="fine">Either way you start with ${CFG.startStars} stars and ${CFG.baseDemand} regular guests a day. ${esc(nameOf(o))} won't see where you opened until you've both picked.</p>`;
+    <div class="pickfoot"><div class="waitpill"><span class="dot round rival"></span><span><b class="rv">${esc(nameOf(o))}</b> ${S.waiting[o] ? 'is choosing too' : 'has picked'}. Neither of you sees the other's pick until you both lock in.</span></div>
+      ${sel ? `<button class="cta inline bigc" data-act="pick" data-loc="${sel}">Open in the ${CFG.loc[sel].name}</button>` : '<span class="muted">Tap a restaurant to choose it.</span>'}</div>`;
 }
 
 // ---------- build ----------
@@ -877,28 +919,6 @@ function marketHTML(s) {
 }
 
 // ---------- ads ----------
-// Plain-language card text (same numbers as CFG.ads). Card wording is the team's: review it with them.
-function adText(id) {
-  const A = CFG.ads[id], pct = x => `${Math.round(x * 100)}%`;
-  switch (id) {
-    case 'delivery': return [`${A.n} delivery orders. They need food, but no table.`, 'Always works'];
-    case 'lunch': return [`${A.n} guests for sure, but each pays $${A.off} less.`, 'Always works'];
-    case 'subway': return [`${A.n} extra guests.`, `${pct(A.lowChance)} of the time it gets lost in the crowd and only ${A.low} come`];
-    case 'stall': return [`${A.n} extra guest, plus a free plate of food.`, 'Always works'];
-    case 'bus': return [`A tour bus might stop at your door with ${A.n} hungry guests.`, `${pct(A.chance)} chance · if no bus comes, you still pay`];
-    case 'wom': return [S_last() ? `${A.n} extra guest tonight. It's the last day, so that's all.` : `${A.n} extra guest tonight, and ${A.n} more every day after.`, 'Always works'];
-    case 'flyer': return [`${A.n} extra guests come tonight.`, 'Always works'];
-    case 'blogger': return [`A food blogger might come with ${A.n} guests. If you then turn nobody away, you might get a star.`, `${pct(A.chance)} chance they come · ${pct(A.star)} chance of the star`];
-    case 'coupon': return [`${A.n} extra guests come, but each one pays $${A.off} less.`, 'Always works'];
-    case 'fake': return ['Does nothing. Your rival only sees that a card was played on them.', "It's a bluff"];
-    case 'review': return [`Your rival gets ${A.n} fewer guests tonight.`, 'Always works'];
-    case 'poach': return [`${A.n} of your rival's guests comes to you instead.`, 'Always works'];
-    case 'swamp': return [`Send your rival ${A.n} extra guests. Anyone they can't seat leaves unhappy and costs them stars.`, `Risky: if they have room, you've given them ${A.n} customers`];
-    case 'fakebook': return [`${A.tables} of your rival's tables are held tonight for a party that never comes.`, 'Always works'];
-    case 'corner': return [`Your rival's emergency food costs $${A.extra} more tonight.`, 'Only hurts if they need to rush food'];
-  }
-  return [A.desc, ''];
-}
 const S_last = () => app.S && app.S.round >= CFG.rounds;
 // Card faces (style S1 from the mockups): emoji art placeholder, a big effect, one short line and a keyword tag.
 // Numbers come from CFG.ads; the wording is the team's (agreed on the mockup canvas).
@@ -987,7 +1007,9 @@ function adsHTML(s) {
 const SRC = { regulars: 'regulars', 'wom-old': 'word-of-mouth regulars', poached: 'guest you poached', flyer: 'Flyers guests', wom: 'word-of-mouth guests',
   swamp: `guests sent by your rival`, coupon: 'coupon guests', lunch: 'office lunch guests', delivery: 'delivery orders', subway: 'subway poster guests', bus: 'tour bus guests', blogger: "food blogger's guests", stall: 'market stall guests' };
 const srcName = (src, s) => (src === 'swamp' ? `guests sent by ${nameOf(other(s))}` : SRC[src] || src);
-function svcFloor(s, v, shown, P) {
+// Letter badges for guests brought by an ad (F = Flyers), shown at the door
+const BADGE = { flyer: 'F', coupon: 'C', blogger: 'B', stall: 'M', bus: 'T', wom: 'W', 'wom-old': 'W', delivery: 'D', lunch: 'L', subway: 'S', swamp: '!', poached: 'P' };
+function svcFloor(s, v, shown, P, extra = {}) {
   const S = app.S, p = S.players[s], sc = S.script[s];
   const last = shown[shown.length - 1], first = v.out[0] ? v.out[0].snap : v;
   const cur = P ? v : last ? last.snap : first;
@@ -998,8 +1020,15 @@ function svcFloor(s, v, shown, P) {
   const own = [...Array(ownSeat).fill('seat'), ...Array(ownUse - ownSeat).fill('free'), ...Array(held).fill('reserved'), ...Array(fake).fill('fake'), ...Array(lost).fill('broken')];
   const sv = svcState(s), busy = P && P.kind === 'short' && sv.busy;
   const borrowed = [...Array(bSeat).fill('bseat'), ...Array(Math.max(0, borrowedN - bSeat)).fill('bfree'), ...(busy && sv.busy.a === 'borrow' ? ['arriving'] : [])];
-  return ART.floor({ own, borrowed, food: cur.ingr, incoming: busy && sv.busy.a === 'rush', deliv: cur.deliv || 0, queue: P && P.kind === 'short' ? P.need : 0,
-    away: cur.turned, asker: P && P.kind === 'food', roomLabel: `DINING ROOM · YOUR ${p.tables} ${p.tables === 1 ? 'TABLE' : 'TABLES'}`,
+  let queue = 0, tags = [];
+  if (P && P.kind === 'short') {
+    // What each waiting guest is missing: a plate, a table, or nothing (they'll be seated)
+    const g = P.group, freeT = g.noTable ? Infinity : Math.max(0, v.tables - v.usedT);
+    queue = P.need;
+    tags = Array.from({ length: P.need }, (_, i) => ({ b: BADGE[g.src] || '', need: i >= v.ingr ? '🍽' : i >= freeT ? '🪑' : '' }));
+  } else if (extra.next) { queue = extra.next.n; tags = Array.from({ length: queue }, () => ({ b: BADGE[extra.next.src] || '' })); }
+  return ART.floor({ own, borrowed, food: cur.ingr, incoming: busy && sv.busy.a === 'rush', deliv: cur.deliv || 0, queue, queueTags: tags, queueLabel: P ? 'waiting' : 'next in line',
+    away: cur.turned, asker: P && P.kind === 'food', bin: extra.bin || 0, pop: extra.pop || '', roomLabel: `DINING ROOM · YOUR ${p.tables} ${p.tables === 1 ? 'TABLE' : 'TABLES'}`,
     aria: `Your restaurant: ${seated} guests eating, ${cur.ingr} food left, ${cur.turned} left unhappy` });
 }
 // A card result in plain words (from the step the engine recorded)
@@ -1044,101 +1073,180 @@ function logLine(st, s) {
   }
   return null;
 }
+// The star rule, always in view during service (P5). n = guests left unhappy so far (or if you let them go)
+function starCheck(n, note) {
+  const tier = n === 0 ? 0 : n <= 3 ? 1 : 2;
+  const row = (i, l, r, cls) => `<div class="${i === tier ? 'on' : ''}"><span class="ar" aria-hidden="true">${i === tier ? '▶' : ''}</span><span>${l}</span><b class="${cls}">${r}</b></div>`;
+  return `<section class="panel starcheck" aria-label="Star check at closing"><div class="row" style="justify-content:space-between"><h2>Star check at closing</h2><span class="hint">${note}</span></div>
+    <div class="tiers">${row(0, '0 left unhappy', '+1 ★', 'pos')}${row(1, '1–3 left unhappy', '−1 ★', 'neg')}${row(2, '4 or more', '−2 ★', 'neg')}</div>
+    <span class="hint">Plus: if over half your tables are empty at closing, ${Math.round(CFG.emptyTables.chance * 100)}% chance of −1 ★.</span></section>`;
+}
+// Card flips before the doors open: what each card did, one at a time
+function flipList(s) {
+  const S = app.S, o = other(s), mine = S.script[s].info.filter(x => x.k === 'card'), onThem = S.script[o].info.filter(x => x.k === 'card' && x.from === 'rival');
+  return [...mine.filter(x => x.from === 'self').map(x => ({ ...x, who: 'You played', mineSide: true })),
+    ...onThem.map(x => ({ ...x, who: `You played on ${esc(nameOf(o))}`, onRival: true })),
+    ...mine.filter(x => x.from === 'rival').map(x => ({ ...x, who: `${esc(nameOf(o))} played on you` }))];
+}
+function flipStamp(x, s) {
+  const A = CFG.ads[x.id], o = esc(nameOf(other(s)));
+  if (x.onRival) return ['PLAYED', `It works on ${o}'s restaurant tonight.`, ''];
+  switch (x.id) {
+    case 'bus': return x.n ? [`🎲 THE BUS CAME! +${x.n}`, `${x.n} more guests at your door.`, ''] : ['🎲 NO BUS', `No bus today. The $${A.price} is spent anyway.`, 'bad'];
+    case 'blogger': return x.n ? [`🎲 THEY CAME! +${x.n}`, `Seat all ${x.n} for a ${Math.round(A.star * 100)}% shot at a star.`, ''] : ['🎲 NO SHOW', "The blogger didn't come.", 'bad'];
+    case 'subway': return [`+${x.n} ARRIVED`, x.n < A.n ? `Lost in the crowd: only ${x.n} came.` : `${x.n} more guests at your door.`, x.n < A.n ? 'bad' : ''];
+    case 'stall': return [`+${x.n} 👤 +${x.food} 🍽`, 'A guest, plus a free plate in your kitchen.', ''];
+    case 'delivery': return [`+${x.n} ORDERS`, 'They need food, but no table.', ''];
+    case 'review': return [`OUCH −${A.n}`, `${o} left you a bad review.`, 'bad'];
+    case 'poach': return [`−${A.n} 👤`, `${o} took one of your guests.`, 'bad'];
+    case 'swamp': return [`+${A.n} 👤`, `${o} sent you ${A.n} extra guests. Can you seat them?`, 'bad'];
+    case 'fakebook': return [`🪑 ✕${A.tables}`, `${A.tables} of your tables are booked for nobody tonight.`, 'bad'];
+    case 'corner': return [`+$${A.extra} 🍽`, 'Your rush food costs more tonight.', 'bad'];
+    case 'fake': return ['BLUFF!', 'It does nothing at all.', ''];
+  }
+  return [`+${x.n} ARRIVED`, `${plural(x.n, 'more guest')} at your door.`, ''];
+}
 function serviceHTML(s) {
-  const S = app.S, C = CFG.service, sv = svcState(s), o = other(s), p = S.players[s], now = Date.now();
-  const right = (shown) => {
-    const cards = shown.filter(x => x.k === 'card'), selfC = cards.filter(x => x.from === 'self'), rivC = cards.filter(x => x.from === 'rival');
-    const poached = shown.find(x => x.k === 'poached'), rv = S.reveals[s];
-    const paid = rv ? rv.self.reduce((a, id) => a + CFG.ads[id].price, 0) : 0, brought = selfC.reduce((a, x) => a + Math.max(0, x.n), 0) + (poached ? poached.n : 0);
-    const ads = selfC.length || poached ? `<section class="panel"><div class="row" style="gap:8px"><span class="dot you"></span><h2>What your ads got you</h2></div><span class="sub" style="margin-top:-6px">The ads you bought this morning, and how many guests each one brought.</span>
-      <div>${selfC.map(x => `<div class="cardline"><div class="r"><b>${esc(CFG.ads[x.id].name)}</b><span class="muted2">paid $${CFG.ads[x.id].price}</span></div><span class="d">${adResult(x)}</span></div>`).join('')}
-      ${poached ? `<div class="cardline"><div class="r"><b>Poach a guest</b></div><span class="d">${plural(poached.n, 'guest')} from ${esc(nameOf(o))} came to you instead.</span></div>` : ''}</div>
-      ${rv && rv.ok === false ? '<span class="hint">Your ad cards couldn\'t be found on this device, so they did nothing and cost nothing.</span>' : `<div class="lines"><div class="tot" style="font-size:13px"><span class="muted">Total so far</span><b>${usd(paid)} for ${plural(brought, 'guest')}</b></div></div>`}</section>` : '';
-    const tricks = rivC.length ? `<section class="panel"><div class="row" style="gap:8px"><span class="dot rival"></span><h2>${esc(nameOf(o))}'s sabotage</h2></div><span class="sub" style="margin-top:-6px">Your rival paid for these cards to make your night harder.</span>
-      <div>${rivC.map(x => { const [a, b] = trickResult(x, s); return `<div class="cardline"><span class="lead">${a}</span><span class="sm">${b}</span></div>`; }).join('')}</div></section>` : '';
-    // Why regulars came or stayed home (the old play-by-play showed each roll)
-    const sc = S.script[s], d = p.stars - CFG.startStars, rolled = shown.some(x => x.k === 'rep' || x.k === 'lose');
-    const repLine = !rolled ? null
-      : sc.repGain ? `Your ${p.stars} stars brought ${plural(sc.repGain, 'extra regular')} (${d * CFG.rep.perStar} could come, each with a ${Math.round(CFG.rep.chance * 100)}% chance).`
-      : sc.repLoss ? `${plural(sc.repLoss, 'regular')} stayed home because you only have ${plural(p.stars, 'star')} (${-d * CFG.rep.perStar} were unsure, each with a ${Math.round(CFG.rep.loseChance * 100)}% chance of staying home).`
-      : d > 0 ? `Your ${p.stars} stars could have brought extra regulars, but none came tonight.` : 'All your regulars stayed loyal, even with your low stars.';
-    const lines = [...(repLine ? [repLine] : []), ...shown.map(x => logLine(x, s)).filter(Boolean)].reverse();
-    const log = `<section class="panel"><h2>Tonight so far</h2><ol class="log">${lines.length ? lines.slice(0, 6).map((t, i) => `<li class="${i === 0 ? 'now' : ''}"><span class="w">${i === 0 ? 'NOW' : i === lines.length - 1 ? 'START' : ''}</span>${esc(t)}</li>`).join('') : '<li><span class="w"></span>Opening up…</li>'}</ol></section>`;
-    return ads + tricks + log;
+  const S = app.S, C = CFG.service, sv = svcState(s), o = other(s), p = S.players[s], L = CFG.loc[p.loc], sc = S.script[s], now = Date.now();
+  const counters = (shown) => {
+    let seated = 0, away = 0, earned = 0;
+    for (const st of shown) if (st.k === 'arrive') { seated += st.seated; away += st.away; }
+    for (const st of shown) if (st.k === 'arrive') { const g = sc.arrivals.find(x => x.src === st.src); earned += st.seated * (g ? g.price : L.price); }
+    return { seated, away, earned, html: `<div class="tally"><span class="earn">+${usd(earned)} tonight</span><span>Seated <b>${seated}</b></span><span class="${away ? 'bad' : ''}">Left unhappy <b>${away}</b></span></div>` };
   };
-  const tally = (v, shown) => {
-    let came = 0, seated = 0, away = 0;
-    for (const st of shown) if (st.k === 'arrive') { came += st.n; seated += st.seated; away += st.away; }
-    const risk = away === 0 ? '' : away <= 3 ? ' (−1 ★ so far)' : ' (−2 ★ so far)';
-    return `<span>Came <b>${came}</b></span><span>Seated <b>${seated}</b></span><span class="${away ? 'bad' : ''}">Left unhappy <b>${away}</b>${risk}</span>`;
+  const head = (h, sub, c) => `<div class="title"><div style="display:grid;gap:2px"><h1>${h}</h1><span class="sub">${sub}</span></div>${c.html}</div>`;
+  const rule = `Every guest needs <b>1 table + 1 plate</b>. Each meal pays $${L.price}.`;
+  // cards tonight (what each ad did), as badges
+  const cardsTonight = (shown) => {
+    const cards = shown.filter(x => x.k === 'card'), poached = shown.find(x => x.k === 'poached');
+    if (!cards.length && !poached) return '';
+    const line = x => x.from === 'self' ? `<div class="cardline"><span class="lead"><span class="gbadge">${BADGE[x.id] || '•'}</span>${esc(cardName(x.id))}</span><span class="d">${adResult(x)}</span></div>`
+      : `<div class="cardline"><span class="lead"><span class="gbadge rival">${x.id === 'swamp' ? '!' : '×'}</span>${esc(nameOf(o))}'s ${esc(cardName(x.id))}</span><span class="d">${trickResult(x, s)[0]}</span></div>`;
+    return `<section class="panel"><h2>Cards tonight</h2><div>${cards.map(line).join('')}${poached ? `<div class="cardline"><span class="lead"><span class="gbadge">P</span>Poach a guest</span><span class="d">${plural(poached.n, 'guest')} from ${esc(nameOf(o))} came to you instead.</span></div>` : ''}</div></section>`;
   };
-  const head = (v, shown, extra = '') => titleHTML('Service', 'Guests arrive in groups. Each guest needs 1 table and 1 food.', `<div class="tally">${tally(v, shown)}${extra}</div>`);
+  const logPanel = (shown) => {
+    const lines = shown.map(x => logLine(x, s)).filter(Boolean).reverse();
+    return lines.length ? `<details class="panel daylog"><summary><b>Tonight so far</b><span class="hint">${plural(lines.length, 'thing')} happened</span></summary><ol class="log">${lines.slice(0, 8).map((t, i) => `<li class="${i === 0 ? 'now' : ''}"><span class="w">${i === 0 ? 'NOW' : ''}</span>${esc(t)}</li>`).join('')}</ol></details>` : '';
+  };
+  // after closing: waiting for the rival
   if (!S.waiting[s]) {
-    const v = serviceRun(S, s, (S.got[s] && S.got[s].ops) || sv.ops);
-    return statusHTML(s, { cash: v.cash, food: v.ingr }) + `<div class="game"><section class="panel lift">${head(v, v.out)}${svcFloor(s, v, v.out, null)}${keyHTML()}</section><aside class="stack">${waitCard(o, 'Your doors are closed for the night. The recap opens when they finish serving.')}${right(v.out)}</aside></div>`;
+    const v = serviceRun(S, s, (S.got[s] && S.got[s].ops) || sv.ops), c = counters(v.out);
+    return `<div class="game"><section class="panel lift">${head('Closed for the night', 'Your doors are closed.', c)}${svcFloor(s, v, v.out, null)}</section>
+      <aside class="stack">${waitCard(o, 'The recap opens when they finish serving.')}${starCheck(v.turned, 'tonight')}${cardsTonight(v.out)}</aside></div>`;
   }
+  // before the doors open: the ad cards flip one at a time
   if (!sv.started) {
-    const v0 = serviceRun(S, s, [], 0), E = expectedDemand(p, (myCards(s) || {}).self || []);
-    const t = Math.max(0, p.tables - p.held), fd = p.ingr;
-    return statusHTML(s, { food: v0.out[0] ? v0.out[0].snap.ingr : v0.ingr }) + `<div class="game"><section class="panel lift">${head(v0, [])}${svcFloor(s, v0, [], null)}${keyHTML()}
-      <div class="decide"><div class="q"><span><b>Ready to open?</b><span>About ${E.min === E.max ? E.min : `${Math.max(0, E.min)} to ${E.max}`} guests are expected. You can seat ${Math.min(t, fd)}: ${plural(t, 'table')}, ${plural(fd, 'plate')} of food.</span></span></div>
-      <button class="cta inline" data-act="play">Open the doors →</button></div></section><aside class="stack">${right([])}</aside></div>`;
+    const v0 = serviceRun(S, s, [], 0), list = flipList(s), shownN = Math.min(sv.flip, list.length);
+    const guests = sc.arrivals.reduce((a, g) => a + g.n, 0);
+    const start = Math.max(0, CFG.baseDemand + sc.repGain - sc.repLoss - sc.fewer) + p.wom;
+    const parts = list.slice(0, shownN).filter(x => !x.onRival && x.n).map(x => (x.n > 0 ? ` + ${x.n}` : ` − ${-x.n}`)).join('');
+    const poachN = S.reveals[s].rival.includes('poach') && list.slice(0, shownN).some(x => x.onRival && x.id === 'poach') ? ` + ${CFG.ads.poach.n}` : '';
+    const done = shownN >= list.length;
+    const t = Math.max(0, p.tables - p.held - sc.fakeHeld), fd = p.ingr + sc.stallFood;
+    if (list.length && !done) {
+      const cards = list.slice(0, shownN + 1).map((x, i) => {
+        const [st, line, cls] = flipStamp(x, s), up = i < shownN;
+        return `<div class="flip"><span class="who">${x.who}</span>${up ? adCard(x.id, o, { button: false, stamp: `<span class="stamp ${cls}">${st}</span>` }) : cardBack('f' + i)}<span class="hint">${up ? line : 'Flipping…'}</span></div>`;
+      }).join('');
+      return `<div class="game"><section class="panel lift">${titleHTML('Cards flip!', 'One at a time, before the doors open.')}
+        <div class="flips">${cards}</div>
+        <div class="decide"><div class="q"><span><b>Tonight so far: ${parts || poachN ? `${start}${parts}${poachN} = ${start + list.slice(0, shownN).filter(x => !x.onRival && x.n).reduce((a, x) => a + x.n, 0) + (poachN ? CFG.ads.poach.n : 0)}` : start} guests</b><span>${shownN ? '' : 'Your regulars, before any cards.'}</span></span></div>
+        <button class="cta inline" data-act="flip">${shownN + 1 >= list.length ? 'Flip the last card' : 'Flip the next card'} →</button></div></section>
+        <aside class="stack">${starCheck(0, 'tonight')}</aside></div>`;
+    }
+    return `<div class="game"><section class="panel lift">${head('Ready to open?', rule, counters([]))}${svcFloor(s, v0, [], null)}
+      <div class="decide"><div class="q"><span><b>${plural(guests, 'guest')} on the way tonight</b><span>You can serve ${Math.min(t + (v0.deliv || 0), fd)} of them right now: ${plural(t, 'table')} and ${plural(fd, 'plate')}.</span></span></div>
+      <button class="cta inline" data-act="play">Open the doors →</button></div></section>
+      <aside class="stack">${starCheck(0, 'tonight')}${list.length ? `<section class="panel"><h2>Cards tonight</h2>${list.map(x => `<div class="cardline"><span class="lead">${x.who}: ${esc(cardName(x.id))}</span><span class="d">${flipStamp(x, s)[1]}</span></div>`).join('')}</section>` : ''}</aside></div>`;
   }
-  const v = serviceRun(S, s, sv.ops, sv.closed), shown = v.out.slice(0, sv.idx), P = sv.idx >= v.out.length ? v.pending : null;
-  let panel = '';
+  const v = serviceRun(S, s, sv.ops, sv.closed), shown = v.out.slice(0, sv.idx), P = sv.idx >= v.out.length ? v.pending : null, c = counters(shown);
+  const finished = sv.idx >= v.out.length && !v.pending;
+  const ff = finished ? '' : `<button class="btn" data-act="fast">${ART.icon('ff', 12)} ${sv.fast ? 'Normal speed' : 'Fast-forward'}</button>`;
+  // someone asks for food (villager in the countryside): both choices show the odds
   if (P && P.kind === 'food') {
-    const who = p.loc === 'city' ? 'A homeless man' : 'A villager';
-    panel = `<div class="decide"><div class="q"><span><b>${who} asks for something to eat</b><span>Giving uses 1 food. Saying no might get around.</span></span></div>
-      <div class="acts">${v.ingr >= 1 ? `<button class="ink-btn" data-act="svc" data-a="give"><span>Give 1 food</span></button>` : '<span class="hint">No food left to give.</span>'}<button class="line-btn" data-act="svc" data-a="refuse"><span>Say no</span></button></div></div>`;
-  } else if (P && P.kind === 'short') {
+    const who = p.loc === 'city' ? 'Someone on the street is hungry' : 'A villager is hungry', place = p.loc === 'city' ? 'the street' : 'the village';
+    const later = sc.arrivals.slice(1).reduce((a, g) => a + g.n, 0), pct = x => `${Math.round(x * 100)}%`;
+    const give = v.ingr >= 1
+      ? `<button class="opt ink" data-act="svc" data-a="give"><b>Give 1 plate</b><span>Free meal, no money</span><span class="kw gamble">🎲 ${pct(C.foodGood)}</span><span>word of your kindness: <b class="pos">+1 ★</b></span></button>`
+      : '<span class="hint">No food left to give.</span>';
+    return `<div class="game"><section class="panel lift">${head(who, `They can't pay. You decide, and ${place} will talk about it.`, c)}${svcFloor(s, v, shown, P)}
+      <div class="decide" role="alertdialog" aria-label="Someone asks for food"><div class="q"><span><b>Give them a plate?</b></span></div>
+        <div class="opts">${give}<button class="opt" data-act="svc" data-a="refuse"><b>Say no</b><span>Keep the plate</span><span class="kw gamble">🎲 ${pct(C.foodBad)}</span><span>word gets out: <b class="neg">−1 ★</b></span></button></div></div></section>
+      <aside class="stack">${starCheck(c.away, 'right now')}<section class="panel"><h2>Think about</h2><span class="sub" style="font-size:14px;line-height:1.45">${later ? `${plural(later, 'more guest')} ${later === 1 ? 'is' : 'are'} still expected tonight and you have ${plural(v.ingr, 'plate')}.` : `Nobody else is expected tonight and you have ${plural(v.ingr, 'plate')}.`}</span></section>${cardsTonight(shown)}</aside></div>`;
+  }
+  // shortage: bubbles show what each guest is missing, each choice says what it does
+  if (P && P.kind === 'short') {
     if (!sv.waitAt) sv.waitAt = now;
     const b = sv.busy, pr = a => opPrice(S, s, P.ep, P.tries, a), triesLeft = P.maxOps - P.tries;
-    const food = P.shortOn.includes('ingr'), tabs = P.shortOn.includes('tables');
-    const why = food && tabs ? "You're short on food and tables." : food ? "Every guest needs food, and you don't have enough." : 'Every table is taken, but you have enough food.';
-    const room = P.can ? `Room for ${P.can}.` : 'Room for none.';
-    const act = (a, label, sub, keyName) => {
+    const food = P.shortOn.includes('ingr'), tabs = P.shortOn.includes('tables'), miss = P.need - P.can, meal = P.group.price;
+    const h = food && tabs ? 'Out of plates and tables!' : food ? 'Out of plates!' : 'Out of tables!';
+    const tierAfter = c.away + miss, starNow = tierAfter === 0 ? '+1 ★' : tierAfter <= 3 ? '−1 ★' : '−2 ★';
+    const act = (a, label, sub) => {
       const price = pr(a);
       if (v.cash < price) return `<span class="hint">${label} costs $${price}. You have ${usd(v.cash)}.</span>`;
-      return `<button class="ink-btn" data-act="svc" data-a="${a}"><span>${label}<small>${sub}</small></span><b>$${price}</b><kbd>${keyName}</kbd></button>`;
+      return `<button class="opt ink" data-act="svc" data-a="${a}"><span class="r"><b>${label}</b><b>$${price}</b></span><span>${sub(price)}</span><kbd>${a === 'rush' ? 'R' : 'B'}</kbd></button>`;
     };
-    const acts = b ? '' : [food ? act('rush', 'Rush food', `+1 in ${C.opTime}s${S.script[s].cornered ? ` · +$${CFG.ads.corner.extra}, sabotaged` : ''}`, 'R') : '',
-      tabs ? act('borrow', 'Borrow a table', `takes ${C.opTime}s · they may say no`, 'B') : ''].join('');
-    panel = `<div class="decide ${triesLeft <= 1 ? 'hot' : ''}" role="alertdialog" aria-label="Guests waiting"><div class="q"><span class="ringw">${ring(sv.waitAt, sv.waitAt + C.patience * 1000, 'ink')}<b data-count="${sv.waitAt + C.patience * 1000}"></b></span>
-        <span><b>${P.need} ${esc(srcName(P.group.src, s))} at the door</b><span>${room} ${why} ${b ? '' : `You can try ${plural(triesLeft, 'more time')}.`}</span>
-        ${b ? `<span class="toastline">${b.a === 'rush' ? 'Food on its way…' : 'Asking next door…'}</span>${pbar(b.start, b.until)}` : sv.msg ? `<span class="toastline">${esc(sv.msg)}</span>` : ''}${P.villagers ? `<span class="toastline">Villagers brought ${P.villagers} food for free!</span>` : ''}</span></div>
-      <div class="acts">${acts}<button class="line-btn" data-act="svc" data-a="letgo"><span>Let them go<small>they leave unhappy</small></span><kbd>Esc</kbd></button></div></div>`;
+    const acts = b ? '' : [food ? act('rush', 'Rush 1 plate', pr0 => `+1 guest eats (+$${meal}) · ${meal >= pr0 ? `you make $${meal - pr0}` : `you lose $${pr0 - meal}`}, but one fewer unhappy${S.script[s].cornered ? ` · +$${CFG.ads.corner.extra}, sabotaged` : ''}`) : '',
+      tabs ? act('borrow', 'Borrow a table', () => `Only helps a guest who needs a seat · neighbour may say no (${Math.round(C.borrowNo * 100)}%)`) : ''].join('');
+    // why this happened (P6)
+    const first = v.out[0] ? v.out[0].snap : v, extra = shown.filter(x => x.k === 'card' && x.n > 0);
+    const why = `You opened with ${plural(p.ingr + sc.stallFood, 'plate')} and ${plural(Math.max(0, p.tables - p.held - sc.fakeHeld), 'table')}.${extra.length ? ` ${extra.map(x => (x.from === 'self' ? esc(cardName(x.id)) : `${esc(nameOf(o))}'s ${esc(cardName(x.id))}`)).join(' and ')} brought ${plural(extra.reduce((a, x) => a + x.n, 0), 'extra guest')}.` : ''}`;
+    return `<div class="game"><section class="panel lift">${head(h, `${plural(miss, 'guest')} at the door can't be served. The bubbles show what each one is missing.`, c)}${svcFloor(s, v, shown, P)}
+      <div class="decide ${triesLeft <= 1 ? 'hot' : ''}" role="alertdialog" aria-label="Guests waiting"><div class="q"><span class="ringw">${ring(sv.waitAt, sv.waitAt + C.patience * 1000, 'ink')}<b data-count="${sv.waitAt + C.patience * 1000}"></b></span>
+          <span><b>They'll wait a few more seconds. What do you do?</b><span>${b ? '' : `You can try ${plural(triesLeft, 'more time')}.`}</span>
+          ${b ? `<span class="toastline">${b.a === 'rush' ? 'Food on its way…' : 'Asking next door…'}</span>${pbar(b.start, b.until)}` : sv.msg ? `<span class="toastline">${esc(sv.msg)}</span>` : ''}${P.villagers ? `<span class="toastline">Villagers brought ${P.villagers} food for free!</span>` : ''}</span></div>
+        <div class="opts">${acts}<button class="opt" data-act="svc" data-a="letgo"><span class="r"><b>Let them go</b><b>$0</b></span><span>${plural(miss, 'guest')} leave${miss === 1 ? 's' : ''} unhappy → star check: ${starNow}</span><kbd>Esc</kbd></button></div></div></section>
+      <aside class="stack">${starCheck(tierAfter, `if you let them go: ${starNow}`)}<section class="panel"><h2>Why this happened</h2><span class="sub" style="font-size:14px;line-height:1.45">${why}</span></section>${cardsTonight(shown)}</aside></div>`;
   }
-  const finished = sv.idx >= v.out.length && !v.pending;
+  // closing time: leftovers go in the bin (day 1: the free plates)
   if (finished) {
-    panel = `<div class="decide"><div class="q"><span><b>Closing time</b><span>Seated ${v.served} · left unhappy ${v.turned} · empty tables ${v.empty || 0} · food left ${v.ingr}${v.ingr ? ' (leftovers go bad tonight)' : ''}${v.tables && v.empty > v.tables * CFG.emptyTables.share ? '. More than half your tables are empty, which might cost a star.' : ''}</span></span></div>
-      <button class="cta inline" data-act="svcdone">Close for the day</button></div>`;
-  } else if (!P) {
-    const lastSt = shown[shown.length - 1], line = lastSt && logLine(lastSt, s);
-    panel = `<div class="banner" role="status">${line ? esc(line) : 'Opening up…'}</div>`;
+    const left = v.ingr, day1 = S.round === 1 && CFG.freeFood, emptyRisk = v.tables && v.empty > v.tables * CFG.emptyTables.share;
+    const waste = left ? (day1 ? `<b>${left} of your ${CFG.freeFood} free plates went to waste.</b>Food doesn't keep overnight. Tomorrow you pay for every plate, so buy only what you'll serve.`
+      : `<b>${plural(left, 'plate')} ${left === 1 ? 'goes' : 'go'} bad tonight.</b>Food doesn't keep overnight. That's money in the bin.`) : '<b>No leftovers.</b>Every plate was served. Nothing wasted.';
+    return `<div class="game"><section class="panel lift">${head('Closing time', `Day ${S.round} is done. Here's what's left in your restaurant.`, c)}${svcFloor(s, v, shown, null, { bin: left })}
+      <div class="callout ${left ? 'waste' : ''}">${left ? '<span class="binic" aria-hidden="true">🗑️</span>' : ART.icon('check', 22)}<span>${waste}</span></div>
+      <div class="decide"><div class="q"><span><b>${v.turned ? `${plural(v.turned, 'guest')} left unhappy tonight` : 'Nobody left unhappy'}</b><span>${v.turned ? 'Next you can say sorry with a voucher.' : 'Time to see how the day went.'}</span></span></div>
+      <button class="cta inline" data-act="svcdone">${v.turned ? 'Close for the day →' : `See how day ${S.round} went →`}</button></div></section>
+      <aside class="stack">${starCheck(v.turned, `${v.turned} unhappy`)}<section class="panel"><h2>Empty tables check</h2><span class="vd ${emptyRisk ? 'bad' : 'ok'}">${ART.icon(emptyRisk ? 'warn' : 'check', 16)} ${v.empty || 0} of ${v.tables} empty at closing · ${emptyRisk ? `${Math.round(CFG.emptyTables.chance * 100)}% chance of −1 ★` : 'safe'}</span></section>${cardsTonight(shown)}</aside></div>`;
   }
-  const ff = finished ? '' : `<button class="btn" data-act="fast">${ART.icon('ff', 12)} ${sv.fast ? 'Normal speed' : 'Fast-forward'}</button>`;
-  const lastSnap = P ? v : (shown.length ? shown[shown.length - 1].snap : (v.out[0] ? v.out[0].snap : v));
-  return statusHTML(s, { cash: v.cash, food: lastSnap.ingr }) + `<div class="game"><section class="panel lift">${head(v, shown, ff)}${svcFloor(s, v, shown, P)}${keyHTML()}${panel}</section><aside class="stack">${right(shown)}</aside></div>`;
+  // running: guests come in, +$ pops when they pay
+  const lastSt = shown[shown.length - 1], line = lastSt && logLine(lastSt, s);
+  const nextArr = v.out.slice(sv.idx).find(x => x.k === 'arrive');
+  const pop = lastSt && lastSt.k === 'arrive' && lastSt.seated ? `+$${lastSt.seated * ((sc.arrivals.find(x => x.src === lastSt.src) || { price: L.price }).price)}` : '';
+  const nextLine = nextArr ? `Next in line: ${plural(nextArr.n, nextArr.noTable ? 'delivery order' : 'guest')}${BADGE[nextArr.src] && nextArr.src !== 'regulars' ? ` (${esc(srcName(nextArr.src, s))})` : ''}.` : '';
+  return `<div class="game"><section class="panel lift">${head('Doors open!', rule, c)}${svcFloor(s, v, shown, null, { next: nextArr && nextArr.src !== 'regulars' ? nextArr : (nextArr ? { n: nextArr.n, src: '' } : null), pop })}
+    <div class="banner" role="status"><span class="bell" aria-hidden="true">🛎️</span><span class="t">${line ? esc(line) : 'Opening up…'} ${nextLine ? `<span>${nextLine}</span>` : ''}</span>${ff}</div></section>
+    <aside class="stack">${starCheck(c.away, 'right now')}${cardsTonight(shown)}${logPanel(shown)}</aside></div>`;
 }
 
-// ---------- sorry vouchers ----------
+// ---------- sorry vouchers: a pop-up after service, before the recap ----------
 function voucherHTML(s) {
   const S = app.S, v = S.service[s], p = S.players[s], k = S.waiting[s], o = other(s);
+  const back = `<div class="game"><section class="panel lift">${titleHTML('Closing time', `Day ${S.round} is done.`)}</section><aside class="stack">${starCheck(v.turned, `${v.turned} unhappy`)}</aside></div>`;
   if (!k) {
-    const note = v.turned > 0 && !S.submitted[s] && p.cash < CFG.voucher ? `You turned away ${plural(v.turned, 'guest')}, but don't have $${CFG.voucher} for a voucher.` : '';
-    return `<div class="game"><section class="panel lift">${titleHTML('Say sorry?', '')}<span class="sub">${note || 'Done. The recap is next.'}</span></section><aside class="stack">${waitCard(o)}</aside></div>`;
+    const note = v.turned > 0 && !S.submitted[s] && p.cash < CFG.voucher ? `You turned away ${plural(v.turned, 'guest')}, but don't have $${CFG.voucher} for a voucher.` : 'Done. The recap is next.';
+    return back + `<div class="vmodal" role="dialog" aria-modal="true" aria-label="Sorry vouchers"><div class="vcard"><span class="eyebrow">After service</span><b class="vh">${note}</b>${waitCard(o)}</div></div>`;
   }
   const f = F({ n: 0 }), max = Math.min(v.turned, Math.floor(p.cash / CFG.voucher));
-  const res = n => { const u = v.turned - n; return u === 0 ? 'no star lost' : u <= 3 ? 'lose 1 ★' : 'lose 2 ★'; };
-  const boxes = Array.from({ length: Math.min(v.turned, 8) + 1 }, (_, n) => n).filter(n => n <= max || n === 0);
-  return `<div class="game" style="grid-template-columns:minmax(0,640px);justify-content:center"><section class="panel lift" style="gap:16px;padding:24px">
-    <h1 style="font-size:22px">${plural(v.turned, 'guest')} left unhappy tonight</h1>
-    <span style="font-size:14px;color:var(--ink2);line-height:1.5">You can send each one a $${CFG.voucher} voucher to say sorry. Guests who get one don't count against your stars.</span>
-    <div class="tile" style="grid-template-columns:1fr auto;align-items:center;padding:14px 16px"><b>Vouchers to send</b>
-      <div class="stepper" role="group" aria-label="Vouchers">${f.n > 0 ? `<button type="button" data-act="inc" data-f="n" data-d="-1" aria-label="One fewer">−</button>` : '<span class="off" aria-hidden="true">−</span>'}<output>${f.n}</output>${f.n < max ? `<button type="button" data-act="inc" data-f="n" data-d="1" aria-label="One more">+</button>` : '<span class="off" aria-hidden="true">+</span>'}</div></div>
-    <div style="display:grid;grid-template-columns:repeat(${boxes.length},minmax(0,1fr));gap:6px;font-size:12px;text-align:center">${boxes.map(n => `<span style="padding:8px 4px;border-radius:10px;${n === f.n ? 'box-shadow:0 0 0 2px var(--ink);background:var(--surface)' : res(n) === 'no star lost' ? 'background:var(--sunk)' : 'background:var(--bad-soft);color:var(--bad-text)'}"><b style="display:block;font-size:14px">${n}</b>${res(n)}</span>`).join('')}</div>
-    ${max < v.turned ? `<span class="hint">You can afford ${plural(max, 'voucher')}.</span>` : ''}
-    <button class="cta" data-act="voucher">${f.n ? `Send ${plural(f.n, 'voucher')} (${usd(f.n * CFG.voucher)}) and see the recap` : 'No vouchers, see the recap'}</button></section></div>`;
+  if (f.n > max) f.n = max;
+  const res = n => { const u = v.turned - n; return u === 0 ? 'no star lost' : u <= 3 ? '−1 ★' : '−2 ★'; };
+  const faces = Array.from({ length: Math.min(v.turned, 12) }, (_, i) => {
+    const on = i < f.n, can = i < max;
+    return `<button type="button" class="face ${on ? 'on' : ''}" data-act="vface" data-i="${i}" aria-pressed="${on}" ${can ? '' : 'disabled'} aria-label="Guest ${i + 1}: ${on ? 'voucher sent' : `send a $${CFG.voucher} voucher`}"><span class="em">${on ? '😊' : '😞'}</span><span>${on ? '🎟️ voucher sent' : can ? `tap to send $${CFG.voucher}` : 'not enough cash'}</span></button>`;
+  }).join('');
+  const boxes = Array.from({ length: Math.min(v.turned, 8) + 1 }, (_, n) => n).filter(n => n <= max);
+  const u = v.turned - f.n, need = u > 3 ? u - 3 : u;
+  const hint = f.n >= max && u > 0 ? `That's all your cash allows.` : u === 0 ? 'Nobody counts against your stars.' : need <= max - f.n
+    ? `Send ${need} more and you ${u > 3 ? 'lose only 1 star instead of 2' : 'keep your star'}. In the score, a star is worth $${CFG.starValue}.` : `In the score, a star is worth $${CFG.starValue}.`;
+  return back + `<div class="vmodal" role="dialog" aria-modal="true" aria-labelledby="vh"><div class="vcard">
+    <span class="eyebrow">After service</span><b class="vh gold" id="vh">${plural(v.turned, 'guest')} left unhappy</b>
+    <span class="sub">Send a $${CFG.voucher} sorry voucher. Guests who get one don't count against your stars.</span>
+    <div class="faces">${faces}</div>${v.turned > 12 ? `<span class="hint">Showing 12 of ${v.turned} guests.</span>` : ''}
+    <div style="display:grid;gap:8px"><span class="hint" style="font-weight:600">Your star result</span>
+      <div class="vres">${boxes.map(n => `<div class="${n === f.n ? 'on' : ''} ${res(n) === 'no star lost' ? 'ok' : ''}"><span>${n} sent · $${n * CFG.voucher}</span><b>${res(n)}</b></div>`).join('')}</div>
+      <span class="vhint">${hint}</span></div>
+    <div class="vbtns"><button class="ghostbtn" data-act="voucher" data-n="0">Don't send any</button><button class="cta" data-act="voucher" ${f.n ? '' : 'disabled'}>${f.n ? `Send ${plural(f.n, 'voucher')} (${usd(f.n * CFG.voucher)})` : 'Tap a face to send one'}</button></div>
+  </div></div>`;
 }
 
 // ---------- recap ----------
@@ -1290,6 +1398,15 @@ document.addEventListener('click', e => {
     case 'cover-ok': app.cover = null; return render();
     case 'theme': { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; lsSet('theme', t); return render(); }
     case 'intro': app.intro++; return render();
+    case 'picksel': { const f = F({}); f.loc = b.dataset.loc; return render(); }
+    case 'showjoin': app.showJoin = true; render(); { const el = $('#code-in'); if (el) el.focus(); } return;
+    case 'joininvite': return joinGame(app.invite && app.invite.code);
+    case 'noinvite': app.invite = null; app.err = ''; clearRoomParam(); render(); return loadResume().then(render);
+    case 'copylink': {
+      const link = `${location.origin}${location.pathname}?room=${app.code}`;
+      try { navigator.clipboard.writeText(link).then(() => toast('Link copied'), () => toast(link)); } catch (err) { toast(link); }
+      return;
+    }
     case 'introskip': app.intro = INTRO.length; return render();
     case 'howto': {
       const ph = S && app.mode ? S.phase : null;
@@ -1313,6 +1430,8 @@ document.addEventListener('click', e => {
       return render();
     }
     case 'fast': { const sv = svcState(s); sv.fast = !sv.fast; return render(); }
+    case 'flip': { const sv = svcState(s); sv.flip++; return render(); }
+    case 'vface': { const f = F({ n: 0 }), i = Number(b.dataset.i); f.n = f.n === i + 1 ? i : i + 1; return render(); }
   }
   if (!k) return;
   switch (a) {
@@ -1328,7 +1447,7 @@ document.addEventListener('click', e => {
     case 'play': { const sv = svcState(s); sv.started = true; sv.last = 0; return render(); }
     case 'svc': return svcAction(s, b.dataset.a);
     case 'svcdone': return act(s, { k, ops: svcState(s).ops });
-    case 'voucher': { const f = F({}); return act(s, { k, n: f.n || 0 }); }
+    case 'voucher': { const f = F({}); return act(s, { k, n: b.dataset.n === '0' ? 0 : f.n || 0 }); }
     case 'next': return act(s, { k });
   }
 });
