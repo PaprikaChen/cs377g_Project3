@@ -344,8 +344,11 @@ function popup(name, line, n) {
 function enqueue(a) {
   const ch = S.chef;
   const same = x => x && x.type === a.type && x.target === a.target;
-  if (same(ch.cur) || ch.queue.some(same)) return;
-  tutAction(a);
+  const tut = tutAction(a);
+  if (tut === 'blocked') return toast('Try the highlighted one first');
+  if (same(ch.cur)) return;
+  if (tut === 'match' && ch.cur && ch.cur.type !== 'rush') { ch.queue = ch.queue.filter(x => !same(x)); ch.queue.unshift(a); return; }
+  if (ch.queue.some(same)) return;
   if (ch.cur && ch.cur.type === 'rush' && a.type !== 'rush') { ch.cur = null; ch.path = []; }
   if (!ch.cur) startAction(a);
   else if (ch.queue.length < 3) ch.queue.push(a);
@@ -623,12 +626,16 @@ function tutHint(key, x, y, text) {
   if (!S.tut.on || S.tut.seen[key]) return;
   S.tut.seen[key] = true; S.tut.hints.push({ x, y, text, t: 3.2 });
 }
-function tutFreeze(key, wait, spot, at, text, below) {
-  S.tut.seen[key] = true; S.tut.freeze = { key, wait, spot, at, text, below };
+function tutFreeze(key, wait, spot, at, text, below, target) {
+  S.tut.seen[key] = true; S.tut.freeze = { key, wait, spot, at, text, below, target };
 }
+// While a tip is waiting, only the highlighted action counts, and the chef does it next.
 function tutAction(a) {
   const f = S.tut.freeze;
-  if (f && f.wait === a.type) { S.tut.freeze = null; if (f.key === 'door') S.tut.g = a.target; }
+  if (!f) return 'none';
+  if (f.wait !== a.type || (f.target && f.target !== a.target)) return 'blocked';
+  S.tut.freeze = null; if (f.key === 'door') S.tut.g = a.target;
+  return 'match';
 }
 function tutCheck() {
   const T = S.tut;
@@ -639,7 +646,7 @@ function tutCheck() {
   if (!T.seen.bunny) { const g = S.guests.find(g => g.state === 'led' && g.leader !== S.chef); if (g) tutHint('bunny', g.leader.x, g.leader.y - 90, 'Bunnies handle their own tables.'); }
   // out of plates beats everything else
   if (!T.seen.plates && S.plates === 0 && S.guests.some(g => g.state === 'wait' && !g.server)) {
-    return tutFreeze('plates', 'rush', { r: [SXs - 12, SY - 12, 184, 102] }, [SC, SY - 18], 'Out of plates! Click the stove.');
+    return tutFreeze('plates', 'rush', { r: [SXs - 12, SY - 12, 184, 102] }, [SC, SY - 18], 'Out of plates! Click the stove.', false, 'stove');
   }
   // a guest the bunnies can't take
   if (!T.seen.door) {
@@ -651,14 +658,14 @@ function tutCheck() {
   if (T.seen.door && !T.seen.serve && T.g && T.g.state === 'wait' && !T.g.server && S.plates > 0) {
     const g = T.g;
     const up = g.y > H / 2;
-    return tutFreeze('serve', 'serve', { c: [g.x + 8, g.y - 26, 62] }, [g.x + 8, up ? g.y - 92 : g.y + 40], 'Click them to serve a plate.', !up);
+    return tutFreeze('serve', 'serve', { c: [g.x + 8, g.y - 26, 62] }, [g.x + 8, up ? g.y - 92 : g.y + 40], 'Click them to serve a plate.', !up, g);
   }
 }
 function tutCheck3() {
   const T = S.tut, col = LOC === 'country' ? 'Blue' : 'Pink';
   // first courier: freeze until the player sends them a plate
   const c = S.couriers.find(c => c.state === 'wait' && !c.server);
-  if (c && !T.seen.courier && S.plates > 0) return tutFreeze('courier', 'deliver', { c: [c.x - 20, c.y - 34, 64] }, [c.x - 30, c.y - 104], 'A courier! Click them to send a plate.');
+  if (c && !T.seen.courier && S.plates > 0) return tutFreeze('courier', 'deliver', { c: [c.x - 20, c.y - 34, 64] }, [c.x - 30, c.y - 104], 'A courier! Click them to send a plate.', false, c);
   // first ad guests: one line, no pause, and the guests glow for a moment
   const ad = S.guests.find(g => g.ad && g.state !== 'out');
   if (ad && !T.seen.ad) { tutHint('ad', 430, H - 44, `${col} guests came from your ${ad.card || 'ad'} card.`); T.flashAd = 3.5; }
