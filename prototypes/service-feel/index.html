@@ -51,6 +51,15 @@ summary{cursor:pointer;font-weight:900}
 .click{cursor:pointer}
 .click:hover>.hl{opacity:1}
 .hl{opacity:0;transition:opacity .12s}
+.coach{position:absolute;z-index:3;background:var(--ink);color:#3A2A1E;border-radius:14px;padding:10px 14px;width:max-content;max-width:min(280px,80%);box-shadow:0 4px 0 rgba(0,0,0,.35);display:flex;flex-direction:column;gap:8px;transform:translate(-50%,calc(-100% - 16px))}
+.coach.below{transform:translate(-50%,16px)}
+.coach p{margin:0;font-weight:900;font-size:15px;line-height:1.3}
+.coach .row{display:flex;align-items:center;gap:12px}
+.coach .btn{padding:7px 12px}
+.linkish{appearance:none;border:0;background:none;padding:0;color:#7A5A40;font:800 12px var(--body);text-decoration:underline;cursor:pointer}
+.coach .step{font-size:11px;font-weight:800;color:#7A5A40;letter-spacing:.04em}
+details.controls{background:none;padding:0}
+details.controls summary{color:var(--muted);font-size:13px}
 @media (prefers-reduced-motion:reduce){.toast{transition:none}}
 </style>
 
@@ -64,6 +73,10 @@ summary{cursor:pointer;font-weight:900}
     <div class="seg" role="group" aria-label="Day">
       <button id="day-1" aria-pressed="true">Day 1 · no ads</button>
       <button id="day-3" aria-pressed="false">Day 3 · ads + event</button>
+    </div>
+    <div class="seg" role="group" aria-label="Day 1 tips">
+      <button id="tips-on" aria-pressed="true">Tips on</button>
+      <button id="tips-off" aria-pressed="false">Tips off</button>
     </div>
     <div class="seg" role="group" aria-label="Speed">
       <button id="spd-0">Pause</button>
@@ -83,10 +96,11 @@ summary{cursor:pointer;font-weight:900}
   <div class="stage" id="stage">
     <svg id="scene" viewBox="0 0 1352 600" role="img" aria-label="Restaurant during service"></svg>
     <div class="toast" id="toast" style="opacity:0"></div>
+    <div class="coach" id="coach" hidden><span class="step" id="coachStep"></span><p id="coachText"></p><div class="row"><button class="btn" id="coachNext" hidden>Next</button><button class="linkish" id="coachSkip">Skip tips</button></div></div>
     <div class="overlay" id="ov"></div>
   </div>
 
-  <p class="help"><b>Click a guest at the door</b> to walk over and seat them at a free table. <b>Click a seated guest with a plate bubble</b> to fetch a plate and serve them. <b>Click the stove</b> to rush a plate, then click the stove (or press <b>Space</b>) while the marker is in the green. You can line up to 3 jobs; clicking something new while cooking pauses the rush. <b>Click the courier</b> to carry a plate to them.</p>
+  <details class="controls"><summary>Controls (for testers)</summary><p class="help"><b>Click a guest at the door</b> to walk over and seat them at a free table. <b>Click a seated guest with a plate bubble</b> to fetch a plate and serve them. <b>Click the stove</b> to rush a plate, then click the stove (or press <b>Space</b>) while the marker is in the green. You can line up to 3 jobs; clicking something new while cooking pauses the rush. <b>Click the courier</b> to carry a plate to them.</p></details>
 
   <details id="tuneBox">
     <summary>Tuning (all numbers are placeholders for the team to set)</summary>
@@ -134,8 +148,8 @@ const AY = [262, 322], AYc = 292, QY = (AY[0] + AY[1]) / 2 + 22, SY = RY + 186, 
 const STOVE = { x: SC, y: SY + 118 }, PICK = { x: KX + 46, y: RY + 172 }, DROP = { x: KX + 188, y: DY + 112 }, PASS = { x: KX - 26, y: AYc + 8 };
 const DOOR_IN = { x: RX + 24, y: AYc + 10 }, EXIT = { x: 96, y: H + 50 }, SPAWN = { x: 96, y: H + 40 };
 
-let LOC = 'country', DAY = 1, speed = 1;
-const TUT_SEED = 377;
+let LOC = 'country', DAY = 1, speed = 1, TIPS = true;
+const TUT_SEED = 67;
 function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 let RND = Math.random;
 const MC = () => (LOC === 'country' ? '#2546F0' : '#D61F69');
@@ -247,6 +261,7 @@ function buildStatic() {
   k += `<rect x="${KX + 120}" y="${DY}" width="${KR - KX - 144}" height="128" rx="12" fill="rgba(255,247,236,.7)" stroke="#7A5A40" stroke-width="2" stroke-dasharray="7 5"/><text x="${KX + 120 + (KR - KX - 144) / 2}" y="${DY + 20}" text-anchor="middle" font-size="11" font-weight="800" letter-spacing="1.5" fill="#7A5A40" font-family="Nunito,sans-serif">DELIVERY PICKUP</text><rect x="${KX + 136}" y="${DY + 34}" width="70" height="20" rx="5" fill="#B08D6E" stroke="${OUT}" stroke-width="1.5"/>`;
   svg.innerHTML = g + k + `<g id="L-plates"></g><g id="L-bus"></g>` + chairs + `<g id="L-seated"></g>` + tops + `<g id="L-tplates"></g><g id="L-walk"></g><g id="L-over"></g><g id="L-ui"></g>`;
   ['plates', 'bus', 'seated', 'tplates', 'walk', 'over', 'ui'].forEach(n => L[n] = svg.querySelector('#L-' + n));
+  L.ui.setAttribute('pointer-events', 'none');
   return nStaff;
 }
 const el = (parent, html, attrs = {}) => { const g = document.createElementNS(NS, 'g'); for (const a in attrs) g.setAttribute(a, attrs[a]); g.innerHTML = html; parent.appendChild(g); return g; };
@@ -274,7 +289,8 @@ const slotPos = i => ({ x: RX - 46 - (i % 3) * 40, y: QY + Math.floor(i / 3) * 5
 function newDay() {
   const nStaff = buildStatic();
   document.documentElement.style.setProperty('--me', MC());
-  S = { t: 0, cash: 0, served: 0, unhappy: 0, plates: P.plates, guests: [], couriers: [], staff: [], floats: [], popups: [], ended: false, open: false, closed: false, nextId: 1, mTime: 0, bus: null };
+  S = { t: 0, cash: 0, served: 0, unhappy: 0, plates: P.plates, guests: [], couriers: [], staff: [], floats: [], popups: [], ended: false, open: false, closed: false, nextId: 1, mTime: 0, bus: null, rushed: 0 };
+  S.tut = { on: DAY === 1 && TIPS, seen: {}, freeze: null, tour: -1, hints: [], g: null };
   sections.filter(s => s.on).forEach(s => S.staff.push({ sec: s, x: s.home.x, y: s.home.y, path: [], task: null, carry: false, node: el(L.walk, '', { 'pointer-events': 'none' }) }));
   S.chef = { x: STOVE.x, y: STOVE.y, path: [], cur: null, queue: [], carry: false, rush: null, node: el(L.walk, '', { 'pointer-events': 'none' }) };
   // schedule
@@ -326,6 +342,7 @@ function enqueue(a) {
   const ch = S.chef;
   const same = x => x && x.type === a.type && x.target === a.target;
   if (same(ch.cur) || ch.queue.some(same)) return;
+  tutAction(a);
   if (ch.cur && ch.cur.type === 'rush' && a.type !== 'rush') { ch.cur = null; ch.path = []; }
   if (!ch.cur) startAction(a);
   else if (ch.queue.length < 3) ch.queue.push(a);
@@ -393,7 +410,7 @@ function rushTry() {
   if (m >= z[0] && m <= z[1]) {
     r.step++; r.flash = .35; r.ok = true;
     if (r.step >= r.zones.length) {
-      S.plates++; S.cash -= P.rushCost; drawPlates(); float(SC, SY - 14, '+1 plate  −$' + P.rushCost);
+      S.plates++; S.rushed++; S.cash -= P.rushCost; drawPlates(); float(SC, SY - 14, '+1 plate  −$' + P.rushCost); tutAfterRush();
       ch.rush = null; ch.cur = null; const n = ch.queue.shift(); if (n) startAction(n);
     }
   } else { r.flash = .35; r.ok = false; }
@@ -411,7 +428,7 @@ function startEating(g) { g.state = 'eat'; g.eat = P.eat; g.server = null; }
 function leave(g, angry) {
   if (g.table) { g.table.guest = null; g.table = null; }
   if (g.claimed && g.claimed.cur && g.claimed.cur.target === g && g.claimed.cur.table) g.claimed.cur.table.reserved = null;
-  if (angry) { S.unhappy++; g.angry = true; }
+  if (angry) { S.unhappy++; g.angry = true; tutHint('unhappy', g.x, g.y - 70, 'Waited too long. They left unhappy.'); }
   g.state = 'out'; g.claimed = null; L.walk.appendChild(g.node);
   if (region(g) === 'din') { g.y = g.y + 30; }
   g.path = route(g, { x: RX - 30, y: AYc + 6 }).concat([EXIT]);
@@ -511,8 +528,9 @@ function render() {
   // staff
   S.staff.forEach(st => {
     const atHome = !st.task && Math.hypot(st.x - st.sec.home.x, st.y - st.sec.home.y) < 3;
-    const key = atHome + '|' + st.carry;
-    if (key !== st.key) { st.key = key; st.node.innerHTML = staffDraw(atHome, st.carry); }
+    const stalled = S.plates === 0 && !st.task && tables.some(t => t.sec === st.sec.i && t.guest && t.guest.state === 'wait' && !t.guest.server);
+    const key = atHome + '|' + st.carry + '|' + stalled;
+    if (key !== st.key) { st.key = key; st.node.innerHTML = staffDraw(atHome, st.carry) + (stalled ? `<g transform="translate(0 -88)"><circle r="15" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.5"/>${platePath(0, 1, .8)}<path d="M-10 9 L10 -9" stroke="#E63946" stroke-width="3" stroke-linecap="round"/></g>` : ''); }
     st.node.setAttribute('transform', `translate(${st.x.toFixed(1)} ${st.y.toFixed(1)})`);
   });
   // chef
@@ -560,7 +578,9 @@ function render() {
     ui += `<text x="${px + 66}" y="${py + 28}" font-size="15" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">${pp.name}</text><text x="${px + 66}" y="${py + 47}" font-size="12" font-weight="700" fill="#7A5A40" font-family="Nunito,sans-serif">${pp.line}</text>`;
     ui += '</g>';
   }
+  ui += tutRender();
   L.ui.innerHTML = ui;
+  tutCoach();
   if (S.bus) {
     const b = S.bus, x = b.x;
     L.bus.innerHTML = `<g transform="translate(${x} 14)"><rect width="190" height="62" rx="12" fill="#E9C46A" stroke="${OUT}" stroke-width="2"/>${[0, 1, 2, 3, 4].map(i => `<rect x="${12 + i * 34}" y="10" width="26" height="18" rx="4" fill="#BFE3F2" stroke="${OUT}" stroke-width="1.3"/>`).join('')}<rect x="0" y="36" width="190" height="8" fill="#E76F51"/><circle cx="40" cy="62" r="9" fill="#2F323B"/><circle cx="150" cy="62" r="9" fill="#2F323B"/><text x="95" y="56" text-anchor="middle" font-size="11" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">TOUR BUS</text></g>`;
@@ -576,6 +596,80 @@ function render() {
 function float(x, y, txt) { S.floats.push({ x, y, txt, t: 1.2 }); }
 let toastT = 0;
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.style.opacity = 1; toastT = 2.2; }
+
+// ---------------- Day 1 tutorial ----------------
+// Pre-opening tour (clock not started), then three freezes that only lift when the player does the thing,
+// plus one-line hints that never stop the clock. All page-only: nothing here changes the rules.
+const TOUR = [
+  { text: 'This is you, the chef.', spot: () => ({ c: [S.chef.x, S.chef.y - 50, 70] }), at: () => [S.chef.x, S.chef.y - 120] },
+  { text: 'Bunnies seat and serve their rug.', spot: () => { const s = sections.find(s => s.on); return s ? { r: [s.x - 6, s.y - 6, s.w + 12, s.h + 12] } : null; }, at: () => { const s = sections.find(s => s.on); return s ? [s.x + s.w / 2, s.y + s.h + 4] : [W / 2, H / 2]; }, below: true },
+  { text: 'No staff? Those tables are yours.', spot: () => { const s = sections.filter(s => !s.on).pop(); return s ? { r: [s.x - 6, s.y - 6, s.w + 12, s.h + 12] } : null; }, at: () => { const s = sections.filter(s => !s.on).pop(); return s ? [s.x + s.w / 2, s.y - 8] : [W / 2, H / 2]; } },
+  { text: 'Plates come from here.', spot: () => ({ r: [KX + 16, RY + 40, KR - KX - 32, SY + 92 - RY - 40] }), at: () => [SC, SY + 96], below: true, last: true }
+];
+function tutHint(key, x, y, text) {
+  if (!S.tut.on || S.tut.seen[key]) return;
+  S.tut.seen[key] = true; S.tut.hints.push({ x, y, text, t: 3.2 });
+}
+function tutFreeze(key, wait, spot, at, text, below) {
+  S.tut.seen[key] = true; S.tut.freeze = { key, wait, spot, at, text, below };
+}
+function tutAction(a) {
+  const f = S.tut.freeze;
+  if (f && f.wait === a.type) { S.tut.freeze = null; if (f.key === 'door') S.tut.g = a.target; }
+}
+function tutCheck() {
+  const T = S.tut;
+  if (!T.on || T.freeze) return;
+  // first bunny at work (no freeze)
+  if (!T.seen.bunny) { const g = S.guests.find(g => g.state === 'led' && g.leader !== S.chef); if (g) tutHint('bunny', g.leader.x, g.leader.y - 90, 'Bunnies handle their own tables.'); }
+  // out of plates beats everything else
+  if (!T.seen.plates && S.plates === 0 && S.guests.some(g => g.state === 'wait' && !g.server)) {
+    return tutFreeze('plates', 'rush', { r: [SXs - 12, SY - 12, 184, 102] }, [SC, SY - 18], 'Out of plates! Click the stove.');
+  }
+  // a guest the bunnies can't take
+  if (!T.seen.door) {
+    const freeStaffed = tables.some(t => t.staffed && !t.guest && !t.reserved);
+    const g = !freeStaffed && S.guests.find(g => g.state === 'queue' && !g.claimed);
+    if (g) return tutFreeze('door', 'seat', { c: [g.x, g.y - 30, 46] }, [g.x + 10, g.y - 92], 'Bunnies are full. Click this guest.');
+  }
+  // that guest is seated and needs a plate
+  if (T.seen.door && !T.seen.serve && T.g && T.g.state === 'wait' && !T.g.server && S.plates > 0) {
+    const g = T.g;
+    const up = g.y > H / 2;
+    return tutFreeze('serve', 'serve', { c: [g.x + 8, g.y - 26, 62] }, [g.x + 8, up ? g.y - 92 : g.y + 40], 'Click them to serve a plate.', !up);
+  }
+}
+function tutAfterRush() {
+  if (!S.tut.on || S.tut.seen.bunnyPlates) return;
+  const st = S.staff.find(st => tables.some(t => t.sec === st.sec.i && t.guest && t.guest.state === 'wait' && !t.guest.server));
+  if (st) tutHint('bunnyPlates', st.x, st.y - 110, 'Bunnies serve again once plates return.');
+}
+const holePath = sp => sp.c ? `M${sp.c[0] - sp.c[2]} ${sp.c[1]} a${sp.c[2]} ${sp.c[2]} 0 1 0 ${2 * sp.c[2]} 0 a${sp.c[2]} ${sp.c[2]} 0 1 0 ${-2 * sp.c[2]} 0Z`
+  : `M${sp.r[0]} ${sp.r[1]} h${sp.r[2]} v${sp.r[3]} h${-sp.r[2]}Z`;
+function tutRender() {
+  const T = S.tut; let u = '';
+  const step = T.tour >= 0 ? TOUR[T.tour] : null, sp = step ? step.spot() : T.freeze ? T.freeze.spot : null;
+  if (sp) u += `<path d="M0 0H${W}V${H}H0Z ${holePath(sp)}" fill="rgba(24,16,12,.6)" fill-rule="evenodd"/><path d="${holePath(sp)}" fill="none" stroke="#FFE08A" stroke-width="3" stroke-dasharray="8 6"/>`;
+  T.hints.forEach(h => {
+    const w = h.text.length * 7.4 + 28, x = Math.max(w / 2 + 6, Math.min(W - w / 2 - 6, h.x));
+    u += `<g transform="translate(${x} ${h.y})" opacity="${Math.min(1, h.t / .6).toFixed(2)}"><rect x="${-w / 2}" y="-15" width="${w}" height="30" rx="15" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.6"/><text y="5" text-anchor="middle" font-size="13" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">${h.text}</text></g>`;
+  });
+  return u;
+}
+function tutCoach() {
+  const T = S.tut, box = document.getElementById('coach');
+  const step = T.tour >= 0 ? TOUR[T.tour] : null, f = T.freeze;
+  if (!step && !f) { if (!box.hidden) box.hidden = true; return; }
+  const [x, y] = step ? step.at() : f.at, below = step ? step.below : f.below;
+  const text = step ? step.text : f.text;
+  if (box.hidden) box.hidden = false;
+  if (document.getElementById('coachText').textContent !== text) document.getElementById('coachText').textContent = text;
+  document.getElementById('coachStep').textContent = step ? `${T.tour + 1} / ${TOUR.length}` : 'Your turn';
+  const nb = document.getElementById('coachNext'); nb.hidden = !step; if (step) nb.textContent = step.last ? 'Open the doors' : 'Next';
+  box.classList.toggle('below', !!below);
+  box.style.left = Math.max(14, Math.min(86, x / W * 100)) + '%';
+  box.style.top = Math.max(8, Math.min(96, y / H * 100)) + '%';
+}
 
 // ---------------- loop ----------------
 function update(dt) {
@@ -594,10 +688,11 @@ function update(dt) {
     else { b.stay -= dt; if (b.stay <= 0) { b.x += 260 * dt; if (b.x > 260) S.bus = null; } }
   }
   if (!S.closed && S.t >= P.dayLen) {
-    S.closed = true; S.sched = [];
+    S.closed = true; S.sched = []; tutHint('closed', RX + 120, AYc - 40, 'Doors closed. Finish the guests inside.');
     S.guests.filter(g => g.state === 'arrive' || g.state === 'queue').forEach(g => { if (!g.claimed) leave(g, false); });
   }
   chefUpdate(dt);
+  tutCheck();
   S.staff.forEach(st => staffUpdate(st, dt));
   S.guests.forEach(g => !g.dead && guestUpdate(g, dt));
   S.couriers.forEach(c => !c.dead && courierUpdate(c, dt));
@@ -612,22 +707,29 @@ function update(dt) {
 let last = performance.now();
 function frame(now) {
   const real = Math.min(0.05, (now - last) / 1000); last = now;
-  if (S && S.open && !S.ended && speed > 0) { const n = speed; for (let i = 0; i < n; i++) update(real); }
+  if (S && S.open && !S.ended && speed > 0 && !S.tut.freeze) { const n = speed; for (let i = 0; i < n; i++) { update(real); if (S.tut.freeze) break; } }
+  if (S && S.tut.hints.length) { S.tut.hints.forEach(h => h.t -= real); S.tut.hints = S.tut.hints.filter(h => h.t > 0); }
   if (S) render();
   requestAnimationFrame(frame);
 }
 
 // ---------------- overlays ----------------
 const ov = document.getElementById('ov');
+function openDoors() { ov.hidden = true; S.tut.tour = -1; S.open = true; last = performance.now(); }
 function showStart() {
   ov.hidden = false;
   const extra = DAY === 3 ? (LOC === 'country' ? 'A Flyers ad brings 2 guests, and a tour bus with 6 guests is on its way.' : 'An Office lunch deal brings 3 guests, and a delivery app sends couriers.') : 'Day 1 has no ads and no events. Just you, the bunnies and the door.';
-  ov.innerHTML = `<div class="card"><h2>${LOC === 'country' ? 'Countryside' : 'City'} · Day ${DAY}</h2><p>Bunnies seat and serve the tables on their rug. Tables with no staff are yours: click a guest to seat them, click their plate bubble to serve.</p><p>${extra}</p><button class="btn" id="go">Open the doors</button></div>`;
-  ov.querySelector('#go').onclick = () => { ov.hidden = true; S.open = true; last = performance.now(); };
+  if (S.tut.on) {
+    ov.innerHTML = `<div class="card"><h2>${LOC === 'country' ? 'Countryside' : 'City'} · Day 1</h2><p>Your first night. Let's take a quick look around.</p><button class="btn" id="go">Show me around</button></div>`;
+    ov.querySelector('#go').onclick = () => { ov.hidden = true; S.tut.tour = 0; };
+    return;
+  }
+  ov.innerHTML = `<div class="card"><h2>${LOC === 'country' ? 'Countryside' : 'City'} · Day ${DAY}</h2>${DAY === 3 ? `<p>${extra}</p>` : ''}<button class="btn" id="go">Open the doors</button></div>`;
+  ov.querySelector('#go').onclick = openDoors;
 }
 function showEnd() {
   ov.hidden = false;
-  ov.innerHTML = `<div class="card"><h2>Closed for the night</h2><div class="stats"><span>Guests served</span><span>${S.served}</span><span>Left unhappy</span><span>${S.unhappy}</span><span>Plates left over</span><span>${S.plates}</span><span>Cash from tonight</span><span>$${S.cash}</span></div><p style="font-size:13px;color:#7A5A40">How did it feel? Try changing the tuning numbers below, then play the day again.</p><button class="btn" id="again">Play this day again</button></div>`;
+  ov.innerHTML = `<div class="card"><h2>Closed for the night</h2><div class="stats"><span>Guests served</span><span>${S.served}</span><span>Left unhappy</span><span>${S.unhappy}</span><span>Plates left over</span><span>${S.plates}</span><span>Plates you rushed</span><span>${S.rushed}</span><span>Cash from tonight</span><span>$${S.cash}</span></div><p style="font-size:13px;color:#7A5A40">How did it feel? Try changing the tuning numbers below, then play the day again.</p><button class="btn" id="again">Play this day again</button></div>`;
   ov.querySelector('#again').onclick = () => newDay();
 }
 
@@ -659,6 +761,10 @@ document.getElementById('day-1').onclick = () => { DAY = 1; press(['day-1', 'day
 document.getElementById('day-3').onclick = () => { DAY = 3; press(['day-1', 'day-3'], 'day-3'); newDay(); };
 ['spd-0', 'spd-1', 'spd-2'].forEach((id, i) => document.getElementById(id).onclick = () => { speed = i; press(['spd-0', 'spd-1', 'spd-2'], id); });
 document.getElementById('restart').onclick = () => newDay();
+document.getElementById('tips-on').onclick = () => { TIPS = true; press(['tips-on', 'tips-off'], 'tips-on'); newDay(); };
+document.getElementById('tips-off').onclick = () => { TIPS = false; press(['tips-on', 'tips-off'], 'tips-off'); newDay(); };
+document.getElementById('coachSkip').onclick = () => { const wasTour = S.tut.tour >= 0; S.tut.on = false; S.tut.freeze = null; S.tut.tour = -1; if (wasTour) openDoors(); };
+document.getElementById('coachNext').onclick = () => { if (S.tut.tour < 0) return; S.tut.tour++; if (S.tut.tour >= TOUR.length) openDoors(); };
 
 window.__rr = () => S;
 newDay();
