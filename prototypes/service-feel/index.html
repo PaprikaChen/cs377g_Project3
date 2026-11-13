@@ -111,7 +111,6 @@ const PARAMS = [
   ['eat', 'Eating time (s)', 3, 30, 1, 12],
   ['mSpeed', 'Rush marker speed (sweeps/s)', 0.2, 2, 0.05, 0.7],
   ['zone', 'Green zone width (%)', 4, 25, 1, 11],
-  ['steps', 'Rush steps per plate', 1, 5, 1, 3],
   ['rushCost', 'Rush cost ($)', 0, 15, 1, 8]
 ];
 const P = {};
@@ -374,7 +373,7 @@ function chefUpdate(dt) {
   }
 }
 function newRush() {
-  const n = P.steps, w = P.zone / 100, zones = [];
+  const n = 1, w = P.zone / 100, zones = [];
   for (let k = 0; k < n; k++) { const lo = k / n + 0.04, hi = (k + 1) / n - 0.04 - w; const a = lo + Math.random() * Math.max(0, hi - lo); zones.push([a, a + w]); }
   return { step: 0, zones, on: false, flash: 0, ok: false };
 }
@@ -531,7 +530,7 @@ function render() {
   if (ch.cur && ch.cur.type === 'rush' && r && r.on) {
     const bx = KX + 22, by = SY + 138, bw = KR - KX - 44, tx = bx + 14, tw = bw - 28, ty = by + 46, th = 20;
     ui += `<rect x="${SXs - 6}" y="${SY - 6}" width="172" height="90" rx="13" fill="none" stroke="${MC()}" stroke-width="3"/>`;
-    ui += `<rect x="${bx}" y="${by}" width="${bw}" height="92" rx="14" fill="#FFF7EC" stroke="${OUT}" stroke-width="2"/><text x="${bx + 14}" y="${by + 22}" font-size="12" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">RUSH 1 PLATE · $${P.rushCost}</text><text x="${bx + bw - 14}" y="${by + 22}" text-anchor="end" font-size="11" font-weight="800" fill="#7A5A40" font-family="Nunito,sans-serif">step ${r.step + 1} of ${r.zones.length}</text>`;
+    ui += `<rect x="${bx}" y="${by}" width="${bw}" height="92" rx="14" fill="#FFF7EC" stroke="${OUT}" stroke-width="2"/><text x="${bx + 14}" y="${by + 22}" font-size="12" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">RUSH 1 PLATE · $${P.rushCost}</text><text x="${bx + bw - 14}" y="${by + 22}" text-anchor="end" font-size="11" font-weight="800" fill="#7A5A40" font-family="Nunito,sans-serif">one click</text>`;
     ui += `<rect x="${tx}" y="${ty}" width="${tw}" height="${th}" rx="10" fill="${r.flash > 0 && !r.ok ? '#FFD6D9' : '#E9DFD3'}" stroke="${OUT}" stroke-width="1.5"/>`;
     r.zones.forEach(([a, b], k) => { ui += `<rect x="${tx + tw * a}" y="${ty + 2}" width="${tw * (b - a)}" height="${th - 4}" rx="6" fill="${k < r.step ? '#2D6A4F' : k === r.step ? '#52B788' : '#B7DEC5'}"/>`; });
     const mx = tx + tw * marker();
