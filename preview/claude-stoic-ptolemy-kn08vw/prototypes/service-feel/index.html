@@ -1,0 +1,660 @@
+<title>Service Feel Test</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800;900&display=swap">
+<style>
+/* Layout: a game window — control row, HUD row, the restaurant scene, then a tuning drawer. Dark warm wood look to match the mockups. */
+:root{
+  --bg:#2B2420; --panel:#3D332C; --panel2:#4A3E35; --ink:#FFF7EC; --muted:#D9C7B4; --line:#5A4B40;
+  --gold:#F4B740; --bad:#E63946; --good:#52B788; --p1:#2546F0; --p2:#D61F69; --me:var(--p1);
+  --display:"Fredoka","Nunito",system-ui,sans-serif; --body:"Nunito",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+html,body{background:var(--bg);color:var(--ink)}
+body{font-family:var(--body);font-size:14px;padding-block:14px 28px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.top h1{font-family:var(--display);font-weight:700;font-size:24px;margin:0;letter-spacing:.01em;margin-right:auto}
+.seg{display:inline-flex;background:var(--panel);border-radius:12px;padding:3px;gap:2px}
+.seg button{appearance:none;border:0;background:transparent;color:var(--muted);font:800 13px var(--body);padding:7px 12px;border-radius:9px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#2B2420}
+.seg button:focus-visible,.btn:focus-visible,summary:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.btn{appearance:none;border:0;background:var(--gold);color:#3A2A1E;font:900 13px var(--body);padding:9px 14px;border-radius:11px;cursor:pointer;box-shadow:inset 0 -3px 0 rgba(0,0,0,.2)}
+.btn.ghost{background:var(--panel);color:var(--ink)}
+.hud{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.pill{display:flex;align-items:center;gap:8px;background:var(--panel);border-radius:12px;padding:7px 12px;font-weight:900;font-size:18px;font-variant-numeric:tabular-nums;box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)}
+.pill small{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.04em}
+.pill.bad b{color:#FF8A93}
+.clock{flex:1 1 260px;display:flex;align-items:center;gap:10px;background:var(--panel);border-radius:12px;padding:10px 14px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)}
+.track{position:relative;flex:1;height:12px;border-radius:6px;background:var(--line)}
+.track i{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:linear-gradient(#FFE08A,#F4B740)}
+.ev{position:absolute;top:-26px;transform:translateX(-50%);background:#E76F51;border-radius:9px;padding:2px 7px;font-size:11px;font-weight:900;white-space:nowrap}
+.stage{position:relative;border-radius:18px;overflow:hidden;background:var(--panel)}
+.stage svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(30,22,18,.55)}
+.card{background:var(--ink);color:#3A2A1E;border-radius:18px;padding:22px 24px;max-width:440px;width:calc(100% - 32px);box-shadow:0 6px 0 rgba(0,0,0,.3);display:flex;flex-direction:column;gap:12px}
+.card h2{font-family:var(--display);font-size:26px;margin:0}
+.card p{margin:0;font-weight:700;line-height:1.45}
+.card ul{margin:0;padding-left:18px;font-weight:700;line-height:1.55}
+.stats{display:grid;grid-template-columns:1fr auto;gap:4px 16px;font-weight:800;font-variant-numeric:tabular-nums}
+.toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--ink);color:#3A2A1E;font-weight:900;padding:8px 14px;border-radius:12px;box-shadow:0 3px 0 rgba(0,0,0,.3);pointer-events:none;transition:opacity .2s;white-space:nowrap}
+.help{color:var(--muted);font-weight:700;font-size:13px;line-height:1.5}
+.help b{color:var(--ink)}
+details{background:var(--panel);border-radius:14px;padding:10px 14px}
+summary{cursor:pointer;font-weight:900}
+.tune{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px 22px;margin-top:12px}
+.tune label{display:grid;grid-template-columns:1fr auto;gap:2px 8px;font-weight:700;font-size:13px;color:var(--muted)}
+.tune label output{color:var(--ink);font-weight:900;font-variant-numeric:tabular-nums}
+.tune input{grid-column:1/-1;width:100%;accent-color:var(--gold)}
+.note{color:var(--muted);font-size:12px;margin-top:10px}
+[hidden]{display:none!important}
+.click{cursor:pointer}
+.click:hover>.hl{opacity:1}
+.hl{opacity:0;transition:opacity .12s}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <h1>Service feel test</h1>
+    <div class="seg" role="group" aria-label="Restaurant">
+      <button id="loc-country" aria-pressed="true">Countryside · cat</button>
+      <button id="loc-city" aria-pressed="false">City · dog</button>
+    </div>
+    <div class="seg" role="group" aria-label="Day">
+      <button id="day-1" aria-pressed="true">Day 1 · no ads</button>
+      <button id="day-3" aria-pressed="false">Day 3 · ads + event</button>
+    </div>
+    <div class="seg" role="group" aria-label="Speed">
+      <button id="spd-0">Pause</button>
+      <button id="spd-1" aria-pressed="true">1×</button>
+      <button id="spd-2">2×</button>
+    </div>
+    <button class="btn ghost" id="restart">Restart day</button>
+  </div>
+
+  <div class="hud">
+    <div class="pill"><svg width="20" height="20" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="10" fill="#F4B740" stroke="#B7791F" stroke-width="2"/><text x="11" y="15.5" text-anchor="middle" font-size="12" font-weight="900" fill="#8A5A12">$</text></svg><span id="cash">0</span></div>
+    <div class="pill"><small>SERVED</small><span id="served">0</span></div>
+    <div class="pill bad"><small>LEFT UNHAPPY</small><b id="unhappy">0</b></div>
+    <div class="clock"><svg width="20" height="20" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="9.5" fill="#FFF7EC" stroke="#3A2A1E" stroke-width="2"/><path d="M11 5 V11 L15 13" stroke="#3A2A1E" stroke-width="2" fill="none" stroke-linecap="round"/></svg><span class="track" id="track"><i id="tfill" style="width:0%"></i></span><span id="tleft" style="font-weight:900;font-variant-numeric:tabular-nums">2:00</span></div>
+  </div>
+
+  <div class="stage" id="stage">
+    <svg id="scene" viewBox="0 0 1352 600" role="img" aria-label="Restaurant during service"></svg>
+    <div class="toast" id="toast" style="opacity:0"></div>
+    <div class="overlay" id="ov"></div>
+  </div>
+
+  <p class="help"><b>Click a guest at the door</b> to walk over and seat them at a free table. <b>Click a seated guest with a plate bubble</b> to fetch a plate and serve them. <b>Click the stove</b> to rush a plate, then click the stove (or press <b>Space</b>) while the marker is in the green. You can line up to 3 jobs; clicking something new while cooking pauses the rush. <b>Click the courier</b> to carry a plate to them.</p>
+
+  <details id="tuneBox">
+    <summary>Tuning (all numbers are placeholders for the team to set)</summary>
+    <div class="tune" id="tune"></div>
+    <p class="note">Changes apply when you press Restart day. Staff and guest numbers are examples, not rules.</p>
+  </details>
+</div>
+
+<script>
+(() => {
+// ---------------- tuning (placeholders) ----------------
+const PARAMS = [
+  ['dayLen', 'Day length (s)', 60, 240, 5, 120],
+  ['guests', 'Walk-in guests per day', 4, 30, 1, 14],
+  ['staff', 'Staff (bunnies)', 0, 10, 1, -1],
+  ['plates', 'Plates ready at opening', 0, 20, 1, 8],
+  ['chefSpeed', 'Your walking speed (px/s)', 60, 320, 10, 160],
+  ['staffSpeed', 'Staff walking speed (px/s)', 60, 320, 10, 130],
+  ['qPat', 'Patience at the door (s)', 5, 60, 1, 22],
+  ['sPat', 'Patience waiting for a plate (s)', 5, 60, 1, 25],
+  ['cPat', 'Courier patience (s)', 10, 90, 1, 35],
+  ['eat', 'Eating time (s)', 3, 30, 1, 12],
+  ['mSpeed', 'Rush marker speed (sweeps/s)', 0.2, 2, 0.05, 0.7],
+  ['zone', 'Green zone width (%)', 4, 25, 1, 11],
+  ['steps', 'Rush steps per plate', 1, 5, 1, 3],
+  ['rushCost', 'Rush cost ($)', 0, 15, 1, 8]
+];
+const P = {};
+const tune = document.getElementById('tune');
+PARAMS.forEach(([k, label, mn, mx, st, def]) => {
+  const id = 'p-' + k;
+  const l = document.createElement('label'); l.htmlFor = id;
+  l.innerHTML = `<span>${label}</span><output id="o-${k}"></output><input type="range" id="${id}" min="${mn}" max="${mx}" step="${st}">`;
+  tune.appendChild(l);
+  const inp = l.querySelector('input'), out = l.querySelector('output');
+  P[k] = def; inp.value = def < 0 ? 0 : def;
+  const show = () => { out.textContent = k === 'staff' && P.staff < 0 ? 'auto' : P[k]; };
+  inp.addEventListener('input', () => { P[k] = +inp.value; show(); });
+  show();
+});
+
+// ---------------- geometry (same as the mockups) ----------------
+const OUT = '#3A2A1E', W = 1352, H = 600, OX = 200, RX = OX + 10, RY = 14, RW = W - RX - 14, RH = H - 28, KX = 1040, KR = RX + RW;
+const AY = [262, 322], AYc = 292, QY = (AY[0] + AY[1]) / 2 + 22, SY = RY + 186, SC = (KX + KR) / 2, SXs = SC - 80, DY = RY + RH - 150;
+const STOVE = { x: SC, y: SY + 118 }, PICK = { x: KX + 46, y: RY + 172 }, DROP = { x: KX + 188, y: DY + 112 }, PASS = { x: KX - 26, y: AYc + 8 };
+const DOOR_IN = { x: RX + 24, y: AYc + 10 }, EXIT = { x: 96, y: H + 50 }, SPAWN = { x: 96, y: H + 40 };
+
+let LOC = 'country', DAY = 1, speed = 1;
+const MC = () => (LOC === 'country' ? '#2546F0' : '#D61F69');
+
+// ---------------- drawing helpers ----------------
+const SK = ['#F2C9A0', '#E0A87C', '#C68B5E'];
+function animalHead(k, fur, inner) {
+  let g = '';
+  if (k === 'cat') g += `<path d="M-11.5 -44 L-10 -58 L-1.5 -50 Z M11.5 -44 L10 -58 L1.5 -50 Z" fill="${fur}" stroke="${OUT}" stroke-width="1.5" stroke-linejoin="round"/><path d="M-9 -47 L-8.3 -54 L-4 -50 Z M9 -47 L8.3 -54 L4 -50 Z" fill="${inner}"/>`;
+  if (k === 'bunny') g += `<ellipse cx="-5.5" cy="-58" rx="4.6" ry="12" fill="${fur}" stroke="${OUT}" stroke-width="1.5" transform="rotate(-8 -5.5 -58)"/><ellipse cx="5.5" cy="-58" rx="4.6" ry="12" fill="${fur}" stroke="${OUT}" stroke-width="1.5" transform="rotate(8 5.5 -58)"/><ellipse cx="-5.5" cy="-58" rx="2" ry="8" fill="${inner}" transform="rotate(-8 -5.5 -58)"/><ellipse cx="5.5" cy="-58" rx="2" ry="8" fill="${inner}" transform="rotate(8 5.5 -58)"/>`;
+  g += `<circle cy="-40" r="12.5" fill="${fur}" stroke="${OUT}" stroke-width="1.6"/>`;
+  if (k === 'dog') g += `<ellipse cx="-12.5" cy="-38" rx="5" ry="9.5" fill="${inner}" stroke="${OUT}" stroke-width="1.4" transform="rotate(18 -12.5 -38)"/><ellipse cx="12.5" cy="-38" rx="5" ry="9.5" fill="${inner}" stroke="${OUT}" stroke-width="1.4" transform="rotate(-18 12.5 -38)"/>`;
+  return g;
+}
+const platePath = (x, y, s = 1) => `<g transform="translate(${x} ${y}) scale(${s})"><ellipse rx="11" ry="6.5" fill="#FFFFFF" stroke="${OUT}" stroke-width="1.3"/><ellipse rx="7" ry="3.8" fill="#F1ECE4"/><ellipse cy="-1" rx="5.5" ry="3" fill="#E58F3C" stroke="${OUT}" stroke-width=".9"/></g>`;
+function person(o = {}) {
+  if (o.plain) {
+    const c = o.plain;
+    let q = '';
+    if (!o.seated) q += `<ellipse rx="14" ry="4.5" cy="1" fill="rgba(40,25,10,.25)"/><rect x="-8.5" y="-11" width="7" height="12" rx="3" fill="${c}" stroke="${OUT}" stroke-width="1.4"/><rect x="1.5" y="-11" width="7" height="12" rx="3" fill="${c}" stroke="${OUT}" stroke-width="1.4"/>`;
+    q += `<path d="M-13 -8 q0 -22 13 -22 q13 0 13 22 z" fill="${c}" stroke="${OUT}" stroke-width="1.6"/><circle cy="-40" r="11.5" fill="${c}" stroke="${OUT}" stroke-width="1.6"/><ellipse cx="-4" cy="-44" rx="4" ry="2.4" fill="#FFFFFF" opacity=".35"/>`;
+    if (o.angry) q += `<g transform="translate(0 -40)"><path d="M-5 -5 l10 10 M5 -5 l-10 10" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/></g>`;
+    return q;
+  }
+  const shirt = o.shirt, skin = o.skin, pants = o.pants || '#3D405B';
+  let g = `<ellipse rx="14" ry="4.5" cy="1" fill="rgba(40,25,10,.25)"/><rect x="-8.5" y="-11" width="7" height="12" rx="3" fill="${pants}" stroke="${OUT}" stroke-width="1.4"/><rect x="1.5" y="-11" width="7" height="12" rx="3" fill="${pants}" stroke="${OUT}" stroke-width="1.4"/>`;
+  if (o.bag) g += `<rect x="-24" y="-30" width="16" height="17" rx="3" fill="#F4B740" stroke="${OUT}" stroke-width="1.5"/>`;
+  g += `<path d="M-13 -8 q0 -22 13 -22 q13 0 13 22 z" fill="${shirt}" stroke="${OUT}" stroke-width="1.6"/>`;
+  g += `<circle cx="-12" cy="-12" r="3.6" fill="${skin}" stroke="${OUT}" stroke-width="1.2"/><circle cx="12" cy="-12" r="3.6" fill="${skin}" stroke="${OUT}" stroke-width="1.2"/>`;
+  if (o.apronC) g += `<path d="M-8 -22 h16 v13 q-8 3 -16 0 z" fill="${o.apronC}" stroke="${OUT}" stroke-width="1.2"/>`;
+  if (o.apron && o.back) g += `<path d="M-6 -29 L-3 -10 M6 -29 L3 -10" stroke="#FFF7EC" stroke-width="2.2"/><path d="M0 -14 l-7 -4 v8 z M0 -14 l7 -4 v8 z" fill="#FFF7EC" stroke="${OUT}" stroke-width="1"/>`;
+  else if (o.apron) g += `<path d="M-7 -24 h14 v14 q-7 3 -14 0 z" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.2"/>`;
+  if (o.scarf) g += `<path d="M-8 -29 q8 5 16 0 l1 4 q-9 5 -18 0 z" fill="${o.scarf}" stroke="${OUT}" stroke-width="1.2"/>`;
+  if (o.animal) g += animalHead(o.animal, skin, o.inner || '#F4A6B8');
+  else g += `<circle cy="-40" r="11.5" fill="${skin}" stroke="${OUT}" stroke-width="1.6"/>`;
+  if (o.helmet) g += `<path d="M-12.5 -40 a12.5 12.5 0 0 1 25 0 z" fill="${o.helmet}" stroke="${OUT}" stroke-width="1.6"/><path d="M-12 -41 h24" stroke="#FFF7EC" stroke-width="2"/>`;
+  if (o.chef) g += `<g fill="#FFFFFF" stroke="${OUT}" stroke-width="1.4"><rect x="-10" y="-56" width="20" height="8" rx="2"/><circle cx="-7" cy="-60" r="6.5"/><circle cx="7" cy="-60" r="6.5"/><circle cx="0" cy="-64" r="7.5"/></g><rect x="-9.4" y="-55.4" width="18.8" height="6.8" fill="#FFFFFF"/>`;
+  if (o.back) return g + (o.carry ? platePath(16, -24, .9) : '');
+  if (o.animal) g += `<ellipse cy="-34.5" rx="6.5" ry="4.6" fill="#FFFFFF" stroke="${OUT}" stroke-width="1.1"/><path d="M-1.8 -37.6 h3.6 l-1.8 2.2 z" fill="${o.animal === 'dog' ? OUT : '#E07A93'}" stroke="${OUT}" stroke-width=".8"/>` + (o.animal === 'cat' ? `<path d="M-7 -35 l-8 -1.5 M-7 -33.5 l-8 1.5 M7 -35 l8 -1.5 M7 -33.5 l8 1.5" stroke="${OUT}" stroke-width=".9"/>` : '');
+  g += `<circle cx="-4.2" cy="-38.5" r="1.7" fill="${OUT}"/><circle cx="4.2" cy="-38.5" r="1.7" fill="${OUT}"/><circle cx="-7" cy="-34" r="2.2" fill="#F28B82" opacity=".55"/><circle cx="7" cy="-34" r="2.2" fill="#F28B82" opacity=".55"/><path d="M-3 -34 q3 2.5 6 0" stroke="${OUT}" stroke-width="1.4" fill="none"/>`;
+  if (o.carry) g += platePath(0, -18, 1);
+  return g;
+}
+const meDraw = (carry) => LOC === 'country'
+  ? person({ shirt: '#FFFFFF', skin: '#A7A7B2', inner: '#F4A6B8', animal: 'cat', chef: true, scarf: MC(), apronC: MC(), carry })
+  : person({ shirt: '#FFFFFF', skin: '#F6DDB5', inner: '#E3A062', animal: 'dog', chef: true, scarf: MC(), apronC: MC(), carry });
+const staffDraw = (back, carry) => person({ shirt: '#3F5E4A', pants: '#2F4537', skin: '#F3E6D6', animal: 'bunny', apron: true, back, carry });
+function ringSVG(f) {
+  const r = 11, c = 2 * Math.PI * r, col = f < .34 ? '#E63946' : f < .6 ? '#F4A261' : '#52B788';
+  return `<circle r="${r + 4}" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.5"/><circle r="${r}" fill="none" stroke="#E9DFD3" stroke-width="5"/><circle r="${r}" fill="none" stroke="${col}" stroke-width="5" stroke-dasharray="${(c * Math.max(0, f)).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90)"/>`;
+}
+
+// ---------------- static scene ----------------
+const NS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('scene');
+let L = {}; // layers
+let tables = [], sections = [];
+function buildStatic() {
+  const cols = LOC === 'country' ? 5 : 4, nT = LOC === 'country' ? 20 : 16;
+  const nStaff = P.staff < 0 ? (LOC === 'country' ? 4 : 3) : Math.min(P.staff, nT / 2);
+  let g = `<defs>
+    <pattern id="wood" width="140" height="40" patternUnits="userSpaceOnUse"><rect width="140" height="40" fill="#C99A6B"/><rect y="20" width="140" height="20" fill="#C1915F"/><path d="M0 20 H140 M0 40 H140" stroke="#A97B4F" stroke-width="2"/><path d="M60 0 V20 M130 20 V40 M30 20 V40" stroke="#A97B4F" stroke-width="2"/></pattern>
+    <pattern id="tile" width="34" height="34" patternUnits="userSpaceOnUse"><rect width="34" height="34" fill="#F3E9DA"/><rect x="2" y="2" width="14" height="14" rx="2" fill="#E8D6BD"/><rect x="18" y="18" width="14" height="14" rx="2" fill="#E8D6BD"/><path d="M0 17 H34 M17 0 V34" stroke="#D8C2A3" stroke-width="1.4"/></pattern>
+    <pattern id="grass" width="40" height="40" patternUnits="userSpaceOnUse"><rect width="40" height="40" fill="#8DB87A"/><path d="M6 12 l2 -6 l2 6 M26 30 l2 -6 l2 6" stroke="#6F9E5E" stroke-width="1.6" fill="none"/></pattern>
+    <pattern id="stone" width="48" height="36" patternUnits="userSpaceOnUse"><rect width="48" height="36" fill="#D8CFC2"/><path d="M0 18 H48 M0 36 H48 M20 0 V18 M44 18 V36 M8 18 V36" stroke="#BFB3A3" stroke-width="2"/></pattern>
+    <pattern id="asphalt" width="30" height="30" patternUnits="userSpaceOnUse"><rect width="30" height="30" fill="#6E6A70"/><circle cx="7" cy="9" r="1" fill="#827E85"/></pattern>
+  </defs>`;
+  if (LOC === 'country') {
+    g += `<rect width="${OX + 20}" height="${H}" fill="url(#grass)"/><rect x="40" width="96" height="${H}" fill="url(#stone)"/>`;
+    [[18, 70], [170, 120], [16, 520], [176, 470]].forEach(([x, y], i) => g += `<g transform="translate(${x} ${y})"><circle r="16" fill="#5C9A5A" stroke="${OUT}" stroke-width="1.5"/><circle cx="-5" cy="-4" r="3" fill="${['#F28482', '#F4B740'][i % 2]}"/></g>`);
+  } else {
+    g += `<rect width="${OX + 20}" height="${H}" fill="url(#asphalt)"/><path d="M22 0 V${H}" stroke="#F4E3B0" stroke-width="4" stroke-dasharray="26 22"/><rect x="40" width="${OX - 40}" height="${H}" fill="url(#stone)"/>`;
+  }
+  g += `<g transform="translate(170 110)"><rect x="-3" y="-60" width="6" height="62" fill="#3D3D45"/><circle cy="-66" r="9" fill="#FFE08A" stroke="${OUT}" stroke-width="1.5"/></g>`;
+  g += `<g transform="translate(118 ${AY[0] - 96})"><rect x="-58" y="-14" width="116" height="26" rx="6" fill="#3A2A1E"/><text y="5" text-anchor="middle" font-size="12" font-weight="800" fill="#FFE08A" font-family="Nunito,sans-serif">${LOC === 'country' ? 'COUNTRYSIDE' : 'CITY'}</text></g>`;
+  // room
+  g += `<rect x="${RX}" y="${RY}" width="${RW}" height="${RH}" rx="12" fill="url(#wood)"/><rect x="${KX}" y="${RY}" width="${KR - KX}" height="${RH}" fill="url(#tile)"/>`;
+  g += `<rect x="${RX}" y="${AY[0] + 6}" width="${KX - RX}" height="${AY[1] - AY[0] - 12}" fill="#B5523B"/><rect x="${RX}" y="${AY[0] + 12}" width="${KX - RX}" height="${AY[1] - AY[0] - 24}" fill="none" stroke="#E9C46A" stroke-width="2" stroke-dasharray="10 6"/>`;
+  g += `<rect x="${RX}" y="${RY}" width="${RW}" height="${RH}" rx="12" fill="none" stroke="#5B4636" stroke-width="12"/><path d="M${KX} ${RY} V${AY[0]} M${KX} ${AY[1]} V${RY + RH}" stroke="#5B4636" stroke-width="10"/>`;
+  g += `<rect x="${RX - 8}" y="${AY[0]}" width="16" height="${AY[1] - AY[0]}" fill="#C99A6B"/><rect x="${KX - 6}" y="${AY[0]}" width="12" height="${AY[1] - AY[0]}" fill="#B5523B"/>`;
+  // sections + tables
+  const FX0 = RX + 22, FX1 = KX - 22, gap = 16, secW = (FX1 - FX0 - (cols - 1) * gap) / cols, rowY = [RY + 22, AY[1] + 14], secH = AY[0] - 10 - rowY[0];
+  tables = []; sections = [];
+  for (let r = 0; r < 2; r++) for (let c = 0; c < cols; c++) {
+    const i = r * cols + c, x = FX0 + c * (secW + gap), y = rowY[r], on = i < nStaff;
+    sections.push({ i, x, y, w: secW, h: secH, on, home: { x: x + secW / 2, y: y + secH - 18 }, row: r });
+    if (on) {
+      const col = '#A9C79F';
+      g += `<rect x="${x}" y="${y}" width="${secW}" height="${secH}" rx="16" fill="${col}" stroke="${OUT}" stroke-width="1.6"/><rect x="${x + 7}" y="${y + 7}" width="${secW - 14}" height="${secH - 14}" rx="11" fill="none" stroke="#FFF7EC" stroke-width="2" stroke-dasharray="7 5" opacity=".75"/>`;
+    } else {
+      g += `<rect x="${x}" y="${y}" width="${secW}" height="${secH}" rx="16" fill="rgba(58,42,30,.12)" stroke="#7A5A40" stroke-width="2" stroke-dasharray="8 6"/><g transform="translate(${x + secW / 2} ${y + secH - 30})"><rect x="-38" y="-12" width="76" height="24" rx="12" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.4"/><text y="5" text-anchor="middle" font-size="12" font-weight="800" fill="#7A5A40" font-family="Nunito,sans-serif">no staff</text></g>`;
+    }
+    for (let t = 0; t < 2; t++) {
+      const tx = x + secW * (t ? .72 : .28), ty = y + 92;
+      tables.push({ id: tables.length, x: tx, y: ty, sec: i, staffed: on, guest: null, reserved: null, stand: { x: tx + (t ? 40 : -40), y: ty + 16 } });
+    }
+  }
+  // chairs (static, below seated guests)
+  let chairs = '';
+  tables.forEach(t => { chairs += `<rect x="${t.x - 13}" y="${t.y - 36}" width="26" height="22" rx="7" fill="#A0673F" stroke="${OUT}" stroke-width="1.5"/><rect x="${t.x - 9}" y="${t.y - 32}" width="18" height="6" rx="3" fill="#C08552"/>`; });
+  let tops = '';
+  tables.forEach(t => { tops += `<ellipse cx="${t.x}" cy="${t.y + 18}" rx="24" ry="6" fill="rgba(40,25,10,.25)"/><rect x="${t.x - 4}" y="${t.y + 4}" width="8" height="13" fill="#7A4A2A" stroke="${OUT}" stroke-width="1.2"/><ellipse cx="${t.x}" cy="${t.y}" rx="29" ry="16" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.8"/><ellipse cx="${t.x}" cy="${t.y - 1}" rx="23" ry="11.5" fill="none" stroke="#EAD9C3" stroke-width="2"/>`; });
+  // kitchen
+  let k = `<text x="${SC}" y="${RY + 34}" text-anchor="middle" font-size="13" font-weight="800" letter-spacing="2" fill="#7A5A40" font-family="Nunito,sans-serif">KITCHEN</text>`;
+  k += `<rect x="${KX + 24}" y="${RY + 46}" width="${KR - KX - 48}" height="88" rx="10" fill="#B08D6E" stroke="${OUT}" stroke-width="1.8"/><rect x="${KX + 30}" y="${RY + 52}" width="${KR - KX - 60}" height="76" rx="7" fill="#D9C3A5"/>`;
+  k += `<g class="click" data-click="stove"><rect class="hl" x="${SXs - 8}" y="${SY - 8}" width="176" height="94" rx="14" fill="none" stroke="#FFE08A" stroke-width="3"/><rect x="${SXs}" y="${SY}" width="160" height="78" rx="10" fill="#4A4E5A" stroke="${OUT}" stroke-width="1.8"/><rect x="${SXs + 6}" y="${SY + 64}" width="148" height="8" rx="3" fill="#3A3D47"/>`;
+  [[34, 22], [80, 22], [126, 22], [34, 48], [80, 48], [126, 48]].forEach(([dx, dy], i) => k += `<circle cx="${SXs + dx}" cy="${SY + dy}" r="11" fill="${i === 1 ? '#E76F51' : '#2F323B'}" stroke="#1E2027" stroke-width="2"/>`);
+  k += `<ellipse cx="${SXs + 80}" cy="${SY + 20}" rx="17" ry="10" fill="#9AA3AD" stroke="${OUT}" stroke-width="1.5"/><g transform="translate(${SXs + 160} ${SY})"><rect x="-24" y="-10" width="48" height="20" rx="10" fill="#E76F51" stroke="${OUT}" stroke-width="1.2"/><text y="4" text-anchor="middle" font-size="10" font-weight="800" fill="#FFF7EC" font-family="Nunito,sans-serif">RUSH</text></g></g>`;
+  k += `<rect x="${KX + 120}" y="${DY}" width="${KR - KX - 144}" height="128" rx="12" fill="rgba(255,247,236,.7)" stroke="#7A5A40" stroke-width="2" stroke-dasharray="7 5"/><text x="${KX + 120 + (KR - KX - 144) / 2}" y="${DY + 20}" text-anchor="middle" font-size="11" font-weight="800" letter-spacing="1.5" fill="#7A5A40" font-family="Nunito,sans-serif">DELIVERY PICKUP</text><rect x="${KX + 136}" y="${DY + 34}" width="70" height="20" rx="5" fill="#B08D6E" stroke="${OUT}" stroke-width="1.5"/>`;
+  svg.innerHTML = g + k + `<g id="L-plates"></g><g id="L-bus"></g>` + chairs + `<g id="L-seated"></g>` + tops + `<g id="L-tplates"></g><g id="L-walk"></g><g id="L-over"></g><g id="L-ui"></g>`;
+  ['plates', 'bus', 'seated', 'tplates', 'walk', 'over', 'ui'].forEach(n => L[n] = svg.querySelector('#L-' + n));
+  return nStaff;
+}
+const el = (parent, html, attrs = {}) => { const g = document.createElementNS(NS, 'g'); for (const a in attrs) g.setAttribute(a, attrs[a]); g.innerHTML = html; parent.appendChild(g); return g; };
+
+// ---------------- state ----------------
+let S;
+function region(p) { return p.x < RX ? 'out' : p.x > KX ? 'kit' : 'din'; }
+function anchor(p) { const r = region(p); return r === 'din' ? { x: p.x, y: AYc } : r === 'kit' ? { x: KX + 24, y: AYc } : { x: RX - 20, y: AYc + 6 }; }
+function route(from, to) {
+  const rf = region(from), rt = region(to);
+  if (rf === rt && rf !== 'din') return [to];
+  return [anchor(from), anchor(to), to];
+}
+function moveAlong(e, sp, dt) {
+  let d = sp * dt;
+  while (d > 0 && e.path.length) {
+    const t = e.path[0], dx = t.x - e.x, dy = t.y - e.y, dist = Math.hypot(dx, dy);
+    if (dist <= d) { e.x = t.x; e.y = t.y; e.path.shift(); d -= dist; }
+    else { e.x += dx / dist * d; e.y += dy / dist * d; d = 0; }
+  }
+  return !e.path.length;
+}
+const slotPos = i => ({ x: RX - 46 - (i % 3) * 40, y: QY + Math.floor(i / 3) * 56 + (i % 3 === 1 ? 6 : 0) });
+
+function newDay() {
+  const nStaff = buildStatic();
+  document.documentElement.style.setProperty('--me', MC());
+  S = { t: 0, cash: 0, served: 0, unhappy: 0, plates: P.plates, guests: [], couriers: [], staff: [], floats: [], popups: [], ended: false, open: false, closed: false, nextId: 1, mTime: 0, bus: null };
+  sections.filter(s => s.on).forEach(s => S.staff.push({ sec: s, x: s.home.x, y: s.home.y, path: [], task: null, carry: false, node: el(L.walk, '', { 'pointer-events': 'none' }) }));
+  S.chef = { x: STOVE.x, y: STOVE.y, path: [], cur: null, queue: [], carry: false, rush: null, node: el(L.walk, '', { 'pointer-events': 'none' }) };
+  // schedule
+  const sched = [], dl = P.dayLen;
+  for (let i = 0; i < P.guests; i++) sched.push({ t: dl * 0.04 + dl * 0.8 * ((Math.random() + Math.random() + i / P.guests * 2) / 4), kind: 'g' });
+  if (DAY === 3) {
+    if (LOC === 'country') {
+      sched.push({ t: dl * 0.3, kind: 'ad', card: 'Flyers', n: 2 });
+      sched.push({ t: dl * 0.6, kind: 'bus', n: 6 });
+    } else {
+      sched.push({ t: dl * 0.32, kind: 'ad', card: 'Office lunch deal', n: 3 });
+      sched.push({ t: dl * 0.22, kind: 'courier', card: 'Delivery app spotlight' });
+      sched.push({ t: dl * 0.62, kind: 'courier' });
+    }
+  }
+  S.sched = sched.sort((a, b) => a.t - b.t);
+  // timeline markers
+  const tr = document.getElementById('track');
+  tr.querySelectorAll('.ev').forEach(n => n.remove());
+  S.sched.filter(e => e.kind === 'bus').forEach(e => { const m = document.createElement('span'); m.className = 'ev'; m.style.left = (e.t / dl * 100) + '%'; m.textContent = 'BUS'; tr.appendChild(m); });
+  // plates on the counter
+  drawPlates();
+  showStart();
+}
+
+// ---------------- spawning ----------------
+function spawnGuest(ad, from) {
+  const g = { id: S.nextId++, ad, x: from ? from.x : SPAWN.x + (Math.random() * 30 - 15), y: from ? from.y : SPAWN.y, path: [], state: 'arrive', pat: 0, table: null, claimed: null, node: el(L.walk, ''), ring: el(L.over, ''), key: '' };
+  g.node.setAttribute('data-click', 'g' + g.id); g.node.classList.add('click');
+  S.guests.push(g);
+  return g;
+}
+function spawnCourier(card) {
+  const c = { id: S.nextId++, x: KR + 30, y: DROP.y + 36, path: [{ x: KX + 250, y: DROP.y + 36 }], state: 'in', pat: P.cPat, node: el(L.walk, ''), ring: el(L.over, ''), key: '' };
+  c.node.setAttribute('data-click', 'c' + c.id); c.node.classList.add('click');
+  S.couriers.push(c);
+  if (card) popup(card, 'sends delivery orders', 0);
+}
+function popup(name, line, n) {
+  S.popups.push({ name, line, n, t: 5 });
+}
+
+// ---------------- chef actions ----------------
+function enqueue(a) {
+  const ch = S.chef;
+  const same = x => x && x.type === a.type && x.target === a.target;
+  if (same(ch.cur) || ch.queue.some(same)) return;
+  if (ch.cur && ch.cur.type === 'rush' && a.type !== 'rush') { ch.cur = null; ch.path = []; }
+  if (!ch.cur) startAction(a);
+  else if (ch.queue.length < 3) ch.queue.push(a);
+  else toast('You already have 3 jobs lined up');
+}
+function startAction(a) {
+  const ch = S.chef; ch.cur = a; a.phase = 0;
+  if (a.type === 'seat') {
+    const g = a.target;
+    if (g.state !== 'queue' || g.claimed) return done();
+    let t = tables.find(t => !t.staffed && !t.guest && !t.reserved) || tables.find(t => !t.guest && !t.reserved);
+    if (!t) { toast('No free table right now'); return done(); }
+    t.reserved = g; g.claimed = ch; a.table = t; ch.path = route(ch, DOOR_IN);
+  } else if (a.type === 'serve') {
+    const g = a.target;
+    if (g.state !== 'wait' || g.server) return done();
+    g.server = ch; ch.path = route(ch, PICK);
+  } else if (a.type === 'rush') {
+    ch.path = route(ch, STOVE);
+  } else if (a.type === 'deliver') {
+    const c = a.target;
+    if (c.state !== 'wait' || c.server) return done();
+    c.server = ch; ch.path = route(ch, PICK);
+  }
+}
+function done() { const ch = S.chef; ch.cur = null; const n = ch.queue.shift(); if (n) startAction(n); }
+function chefUpdate(dt) {
+  const ch = S.chef, a = ch.cur;
+  if (!a) return;
+  const arrived = moveAlong(ch, P.chefSpeed, dt);
+  if (!arrived) return;
+  if (a.type === 'seat') {
+    const g = a.target;
+    if (a.phase === 0) {
+      if (g.state !== 'queue') { a.table.reserved = null; return done(); }
+      g.state = 'led'; g.leader = ch; a.phase = 1; ch.path = route(ch, a.table.stand);
+    } else { seat(g, a.table); done(); }
+  } else if (a.type === 'serve' || a.type === 'deliver') {
+    const tgt = a.target;
+    if (a.phase === 0) {
+      if (S.plates <= 0) { toast('No plates left. Click the stove to rush one.'); tgt.server = null; return done(); }
+      S.plates--; drawPlates(); ch.carry = true; a.phase = 1;
+      ch.path = route(ch, a.type === 'serve' ? tgt.table.stand : DROP);
+    } else {
+      ch.carry = false;
+      if (a.type === 'serve') { if (tgt.state === 'wait') startEating(tgt); else { S.plates++; drawPlates(); } }
+      else { if (tgt.state === 'wait') { S.cash += price(); S.served++; float(tgt.x, tgt.y - 70, '+$' + price()); tgt.state = 'out'; tgt.path = [{ x: KR + 40, y: tgt.y }]; } else { S.plates++; drawPlates(); } }
+      done();
+    }
+  } else if (a.type === 'rush') {
+    if (!ch.rush) ch.rush = newRush();
+    ch.rush.on = true;
+  }
+}
+function newRush() {
+  const n = P.steps, w = P.zone / 100, zones = [];
+  for (let k = 0; k < n; k++) { const lo = k / n + 0.04, hi = (k + 1) / n - 0.04 - w; const a = lo + Math.random() * Math.max(0, hi - lo); zones.push([a, a + w]); }
+  return { step: 0, zones, on: false, flash: 0, ok: false };
+}
+function marker() { const ph = (S.mTime * P.mSpeed) % 2; return ph < 1 ? ph : 2 - ph; }
+function rushTry() {
+  const ch = S.chef;
+  if (!(ch.cur && ch.cur.type === 'rush' && ch.rush && ch.rush.on)) return false;
+  const r = ch.rush, m = marker(), z = r.zones[r.step];
+  if (m >= z[0] && m <= z[1]) {
+    r.step++; r.flash = .35; r.ok = true;
+    if (r.step >= r.zones.length) {
+      S.plates++; S.cash -= P.rushCost; drawPlates(); float(SC, SY - 14, '+1 plate  −$' + P.rushCost);
+      ch.rush = null; ch.cur = null; const n = ch.queue.shift(); if (n) startAction(n);
+    }
+  } else { r.flash = .35; r.ok = false; }
+  return true;
+}
+const price = () => (LOC === 'country' ? 8 : 12);
+
+// ---------------- guests ----------------
+function seat(g, t) {
+  t.reserved = null; t.guest = g; g.table = t; g.state = 'wait'; g.pat = P.sPat; g.server = null; g.claimed = null;
+  g.x = t.x; g.y = t.y - 2; g.path = [];
+  L.seated.appendChild(g.node);
+}
+function startEating(g) { g.state = 'eat'; g.eat = P.eat; g.server = null; }
+function leave(g, angry) {
+  if (g.table) { g.table.guest = null; g.table = null; }
+  if (g.claimed && g.claimed.cur && g.claimed.cur.target === g && g.claimed.cur.table) g.claimed.cur.table.reserved = null;
+  if (angry) { S.unhappy++; g.angry = true; }
+  g.state = 'out'; g.claimed = null; L.walk.appendChild(g.node);
+  if (region(g) === 'din') { g.y = g.y + 30; }
+  g.path = route(g, { x: RX - 30, y: AYc + 6 }).concat([EXIT]);
+}
+function staffUpdate(st, dt) {
+  const T = st.task;
+  if (!T) {
+    const mine = tables.filter(t => t.sec === st.sec.i);
+    const need = mine.find(t => t.guest && t.guest.state === 'wait' && !t.guest.server);
+    if (need && S.plates > 0) { need.guest.server = st; st.task = { type: 'serve', g: need.guest, phase: 0 }; st.path = route(st, PASS); return; }
+    const free = mine.find(t => !t.guest && !t.reserved);
+    const g = free && S.guests.find(g => g.state === 'queue' && !g.claimed);
+    if (g) { free.reserved = g; g.claimed = st; st.task = { type: 'seat', g, t: free, phase: 0 }; st.path = route(st, DOOR_IN); return; }
+    if (Math.hypot(st.x - st.sec.home.x, st.y - st.sec.home.y) > 2 && !st.path.length) st.path = route(st, st.sec.home);
+    moveAlong(st, P.staffSpeed, dt); return;
+  }
+  if (!moveAlong(st, P.staffSpeed, dt)) return;
+  if (T.type === 'seat') {
+    if (T.phase === 0) {
+      if (T.g.state !== 'queue') { T.t.reserved = null; st.task = null; return; }
+      T.g.state = 'led'; T.g.leader = st; T.phase = 1; st.path = route(st, T.t.stand);
+    } else { seat(T.g, T.t); st.task = null; }
+  } else if (T.type === 'serve') {
+    if (T.phase === 0) {
+      if (T.g.state !== 'wait') { st.task = null; return; }
+      if (S.plates <= 0) { T.g.server = null; st.task = null; return; }
+      S.plates--; drawPlates(); st.carry = true; T.phase = 1; st.path = route(st, T.g.table.stand);
+    } else {
+      st.carry = false;
+      if (T.g.state === 'wait') startEating(T.g); else { S.plates++; drawPlates(); }
+      st.task = null;
+    }
+  }
+}
+function guestUpdate(g, dt) {
+  if (g.state === 'arrive' || g.state === 'queue') {
+    const rank = S.guests.filter(x => (x.state === 'arrive' || x.state === 'queue') && x.id < g.id).length;
+    const sp = slotPos(rank);
+    if (Math.hypot(sp.x - g.x, sp.y - g.y) > 1) { g.path = [sp]; moveAlong(g, 90, dt); }
+    if (g.state === 'arrive' && Math.hypot(sp.x - g.x, sp.y - g.y) < 4) { g.state = 'queue'; g.pat = P.qPat; }
+    if (g.state === 'queue' && !g.claimed) { g.pat -= dt; if (g.pat <= 0) leave(g, true); }
+  } else if (g.state === 'led') {
+    const ld = g.leader, d = Math.hypot(ld.x - g.x, ld.y - g.y);
+    if (d > 30) { g.path = [{ x: ld.x, y: ld.y }]; moveAlong(g, Math.max(P.chefSpeed, P.staffSpeed) * 1.05 * Math.min(1, (d - 30) / 10 + .2), dt); }
+  } else if (g.state === 'wait') {
+    if (!g.server) { g.pat -= dt; if (g.pat <= 0) leave(g, true); }
+  } else if (g.state === 'eat') {
+    g.eat -= dt;
+    if (g.eat <= 0) { S.cash += price(); S.served++; float(g.table.x, g.table.y - 60, '+$' + price()); leave(g, false); }
+  } else if (g.state === 'out') {
+    moveAlong(g, 110, dt);
+    if (!g.path.length) { g.node.remove(); g.ring.remove(); g.dead = true; }
+  }
+}
+function courierUpdate(c, dt) {
+  if (c.state === 'in') { if (moveAlong(c, 90, dt)) c.state = 'wait'; }
+  else if (c.state === 'wait') { if (!c.server) { c.pat -= dt; if (c.pat <= 0) { S.unhappy++; c.state = 'out'; c.angry = true; c.path = [{ x: KR + 40, y: c.y }]; } } }
+  else if (c.state === 'out') { if (moveAlong(c, 110, dt)) { c.node.remove(); c.ring.remove(); c.dead = true; } }
+}
+
+// ---------------- render ----------------
+function drawPlates() {
+  let h = '';
+  const m = Math.min(S.plates, 12);
+  for (let j = 0; j < m; j++) h += platePath(KX + 66 + (j % 4) * 58, RY + 74 + Math.floor(j / 4) * 26, 1.35);
+  h += `<g transform="translate(${SC} ${RY + 150})"><rect x="-62" y="-11" width="124" height="22" rx="11" fill="${S.plates ? '#FFF7EC' : '#FFE1E3'}" stroke="${OUT}" stroke-width="1.3"/><text y="5" text-anchor="middle" font-size="12" font-weight="800" fill="${S.plates ? OUT : '#B3261E'}" font-family="Nunito,sans-serif">${S.plates} plate${S.plates === 1 ? '' : 's'} ready</text></g>`;
+  L.plates.innerHTML = h;
+}
+const badgeFor = (target, type) => {
+  const ch = S.chef, list = [ch.cur, ...ch.queue];
+  const i = list.findIndex(a => a && a.target === target && (!type || a.type === type));
+  return i < 0 ? '' : `<g transform="translate(16 -66)"><circle r="10" fill="${MC()}" stroke="${OUT}" stroke-width="1.4"/><text y="4" text-anchor="middle" font-size="12" font-weight="900" fill="#fff" font-family="Nunito,sans-serif">${i + 1}</text></g>`;
+};
+function render() {
+  const hl = `<ellipse class="hl" cy="0" rx="20" ry="7" fill="none" stroke="#FFE08A" stroke-width="3"/>`;
+  S.guests.forEach(g => {
+    if (g.dead) return;
+    const seated = g.state === 'wait' || g.state === 'eat';
+    const col = g.ad ? MC() : '#B8A99A';
+    const key = [seated, g.angry, badgeFor(g)].join('|');
+    if (key !== g.key) { g.key = key; g.node.innerHTML = (seated ? '' : hl) + person({ plain: col, seated, angry: g.angry }) + badgeFor(g); }
+    g.node.setAttribute('transform', `translate(${g.x.toFixed(1)} ${g.y.toFixed(1)})`);
+    // ring / bubble
+    let r = '';
+    if (g.state === 'queue' && !g.claimed) r = `<g transform="translate(${g.x} ${g.y - 70})">${ringSVG(g.pat / P.qPat)}</g>`;
+    if (g.state === 'wait') {
+      const f = g.server ? 1 : g.pat / P.sPat;
+      r = `<g transform="translate(${g.x + 26} ${g.y - 52})" class="click" data-click="g${g.id}"><circle r="17" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.5"/>${platePath(0, 1, .9)}<circle r="17" fill="none" stroke="${f < .34 ? '#E63946' : f < .6 ? '#F4A261' : '#52B788'}" stroke-width="3.5" stroke-dasharray="${(107 * f).toFixed(1)} 107" transform="rotate(-90)"/></g>`;
+    }
+    if (g.state === 'eat') r = '';
+    g.ring.innerHTML = r;
+  });
+  // plates on tables
+  let tp = '';
+  tables.forEach(t => { if (t.guest && t.guest.state === 'eat') tp += platePath(t.x, t.y - 1, 1); });
+  L.tplates.innerHTML = tp;
+  // staff
+  S.staff.forEach(st => {
+    const atHome = !st.task && Math.hypot(st.x - st.sec.home.x, st.y - st.sec.home.y) < 3;
+    const key = atHome + '|' + st.carry;
+    if (key !== st.key) { st.key = key; st.node.innerHTML = staffDraw(atHome, st.carry); }
+    st.node.setAttribute('transform', `translate(${st.x.toFixed(1)} ${st.y.toFixed(1)})`);
+  });
+  // chef
+  const ch = S.chef, ckey = ch.carry + '|' + LOC;
+  if (ckey !== ch.key) { ch.key = ckey; ch.node.innerHTML = `<g transform="scale(1.25)">${meDraw(ch.carry)}</g><g transform="translate(0 -96)"><rect x="-22" y="-12" width="44" height="22" rx="11" fill="${MC()}" stroke="${OUT}" stroke-width="1.4"/><text y="4" text-anchor="middle" font-size="12" font-weight="900" fill="#FFFFFF" font-family="Nunito,sans-serif">YOU</text></g>`; }
+  ch.node.setAttribute('transform', `translate(${ch.x.toFixed(1)} ${ch.y.toFixed(1)})`);
+  // couriers
+  S.couriers.forEach(c => {
+    if (c.dead) return;
+    const key = 'c' + badgeFor(c);
+    if (key !== c.key) { c.key = key; c.node.innerHTML = hl + person({ shirt: '#E63946', pants: '#3D405B', skin: SK[2], helmet: '#F4A261', bag: true }) + badgeFor(c); }
+    c.node.setAttribute('transform', `translate(${c.x.toFixed(1)} ${c.y.toFixed(1)})`);
+    c.ring.innerHTML = c.state === 'wait' ? `<g transform="translate(${c.x} ${c.y - 70})">${ringSVG(c.server ? 1 : c.pat / P.cPat)}</g><g transform="translate(${c.x - 40} ${c.y - 22})" class="click" data-click="c${c.id}"><rect x="-16" y="-14" width="32" height="28" rx="8" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.4"/>${platePath(0, 2, .9)}</g>` : '';
+  });
+  // depth sort walkers
+  const kids = [...L.walk.children];
+  const ys = n => { const m = /translate\(([-\d.]+) ([-\d.]+)\)/.exec(n.getAttribute('transform') || ''); return m ? +m[2] : 0; };
+  const sorted = kids.slice().sort((a, b) => ys(a) - ys(b));
+  if (sorted.some((n, i) => n !== kids[i])) sorted.forEach(n => L.walk.appendChild(n));
+  // UI: rush panel / paused tag / floats / popups / bus
+  let ui = '';
+  const r = ch.rush;
+  if (ch.cur && ch.cur.type === 'rush' && r && r.on) {
+    const bx = KX + 22, by = SY + 138, bw = KR - KX - 44, tx = bx + 14, tw = bw - 28, ty = by + 46, th = 20;
+    ui += `<rect x="${SXs - 6}" y="${SY - 6}" width="172" height="90" rx="13" fill="none" stroke="${MC()}" stroke-width="3"/>`;
+    ui += `<rect x="${bx}" y="${by}" width="${bw}" height="92" rx="14" fill="#FFF7EC" stroke="${OUT}" stroke-width="2"/><text x="${bx + 14}" y="${by + 22}" font-size="12" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">RUSH 1 PLATE · $${P.rushCost}</text><text x="${bx + bw - 14}" y="${by + 22}" text-anchor="end" font-size="11" font-weight="800" fill="#7A5A40" font-family="Nunito,sans-serif">step ${r.step + 1} of ${r.zones.length}</text>`;
+    ui += `<rect x="${tx}" y="${ty}" width="${tw}" height="${th}" rx="10" fill="${r.flash > 0 && !r.ok ? '#FFD6D9' : '#E9DFD3'}" stroke="${OUT}" stroke-width="1.5"/>`;
+    r.zones.forEach(([a, b], k) => { ui += `<rect x="${tx + tw * a}" y="${ty + 2}" width="${tw * (b - a)}" height="${th - 4}" rx="6" fill="${k < r.step ? '#2D6A4F' : k === r.step ? '#52B788' : '#B7DEC5'}"/>`; });
+    const mx = tx + tw * marker();
+    ui += `<path d="M${mx - 8} ${ty - 14} h16 l-8 10 z" fill="${MC()}" stroke="${OUT}" stroke-width="1.3"/><rect x="${mx - 2}" y="${ty - 3}" width="4" height="${th + 6}" rx="2" fill="${OUT}"/>`;
+    ui += `<text x="${bx + bw / 2}" y="${by + 82}" text-anchor="middle" font-size="12" font-weight="800" fill="${r.flash > 0 ? (r.ok ? '#2D6A4F' : '#B3261E') : MC()}" font-family="Nunito,sans-serif">${r.flash > 0 ? (r.ok ? 'Nice!' : 'Missed. Try again') : 'Click the stove (or Space) in the green'}</text>`;
+  } else if (r && r.step > 0) {
+    ui += `<g transform="translate(${SC} ${SY + 100})"><rect x="-66" y="-12" width="132" height="24" rx="12" fill="#FFF7EC" stroke="${MC()}" stroke-width="2"/><text y="5" text-anchor="middle" font-size="12" font-weight="900" fill="${MC()}" font-family="Nunito,sans-serif">rush paused ${r.step}/${r.zones.length}</text></g>`;
+  } else if (ch.cur && ch.cur.type === 'rush') {
+    ui += `<rect x="${SXs - 6}" y="${SY - 6}" width="172" height="90" rx="13" fill="none" stroke="${MC()}" stroke-width="3" stroke-dasharray="6 5"/>`;
+  }
+  // stove badge for queued rush
+  const ri = [ch.cur, ...ch.queue].findIndex(a => a && a.type === 'rush');
+  if (ri > 0) ui += `<g transform="translate(${SXs + 8} ${SY + 6})"><circle r="10" fill="${MC()}" stroke="${OUT}" stroke-width="1.4"/><text y="4" text-anchor="middle" font-size="12" font-weight="900" fill="#fff" font-family="Nunito,sans-serif">${ri + 1}</text></g>`;
+  S.floats.forEach(f => { ui += `<text x="${f.x}" y="${f.y - (1.2 - f.t) * 30}" text-anchor="middle" font-size="16" font-weight="900" fill="#FFE08A" stroke="${OUT}" stroke-width="3" paint-order="stroke" opacity="${Math.min(1, f.t * 2)}" font-family="Nunito,sans-serif">${f.txt}</text>`; });
+  const pp = S.popups[0];
+  if (pp) {
+    const px = 10, py = H - 84, pw = 252, ph = 72;
+    ui += `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="14" fill="#FFF7EC" stroke="${OUT}" stroke-width="2"/><g transform="translate(${px + 34} ${py + 34})"><rect x="-20" y="-25" width="40" height="50" rx="7" fill="${MC()}" stroke="${OUT}" stroke-width="1.6"/><rect x="-14" y="-18" width="28" height="18" rx="3" fill="#FFF7EC"/><path d="M-12 6 h24 M-12 12 h16" stroke="#FFF7EC" stroke-width="2.4" stroke-linecap="round"/></g>`;
+    ui += `<text x="${px + 66}" y="${py + 28}" font-size="15" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">${pp.name}</text><text x="${px + 66}" y="${py + 47}" font-size="12" font-weight="700" fill="#7A5A40" font-family="Nunito,sans-serif">${pp.line}</text>`;
+    ui += `<rect x="${px + 14}" y="${py + ph - 13}" width="${pw - 28}" height="5" rx="2.5" fill="#E9DFD3"/><rect x="${px + 14}" y="${py + ph - 13}" width="${(pw - 28) * pp.t / 5}" height="5" rx="2.5" fill="${MC()}"/>`;
+  }
+  L.ui.innerHTML = ui;
+  if (S.bus) {
+    const b = S.bus, x = b.x;
+    L.bus.innerHTML = `<g transform="translate(${x} 14)"><rect width="190" height="62" rx="12" fill="#E9C46A" stroke="${OUT}" stroke-width="2"/>${[0, 1, 2, 3, 4].map(i => `<rect x="${12 + i * 34}" y="10" width="26" height="18" rx="4" fill="#BFE3F2" stroke="${OUT}" stroke-width="1.3"/>`).join('')}<rect x="0" y="36" width="190" height="8" fill="#E76F51"/><circle cx="40" cy="62" r="9" fill="#2F323B"/><circle cx="150" cy="62" r="9" fill="#2F323B"/><text x="95" y="56" text-anchor="middle" font-size="11" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">TOUR BUS</text></g>`;
+  } else L.bus.innerHTML = '';
+  // HUD
+  document.getElementById('cash').textContent = S.cash;
+  document.getElementById('served').textContent = S.served;
+  document.getElementById('unhappy').textContent = S.unhappy;
+  document.getElementById('tfill').style.width = Math.min(100, S.t / P.dayLen * 100) + '%';
+  const left = Math.max(0, Math.ceil(P.dayLen - S.t));
+  document.getElementById('tleft').textContent = S.closed ? 'closing' : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+}
+function float(x, y, txt) { S.floats.push({ x, y, txt, t: 1.2 }); }
+let toastT = 0;
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.style.opacity = 1; toastT = 2.2; }
+
+// ---------------- loop ----------------
+function update(dt) {
+  S.t += dt; S.mTime += (S.chef.rush && S.chef.rush.on && S.chef.cur && S.chef.cur.type === 'rush') ? dt : 0;
+  while (S.sched.length && S.sched[0].t <= S.t && !S.closed) {
+    const e = S.sched.shift();
+    if (e.kind === 'g') spawnGuest(false);
+    else if (e.kind === 'ad') { for (let i = 0; i < e.n; i++) setTimeout(() => S && spawnGuest(true, { x: SPAWN.x + i * 6, y: SPAWN.y + i * 30 }), 0); popup(e.card, `brought ${e.n} guests`, e.n); }
+    else if (e.kind === 'bus') { S.bus = { x: -200, stay: 6, n: e.n, out: 0 }; }
+    else if (e.kind === 'courier') spawnCourier(e.card);
+  }
+  if (S.bus) {
+    const b = S.bus;
+    if (b.x < 14) b.x = Math.min(14, b.x + 220 * dt);
+    else if (b.out < b.n) { b.cool = (b.cool || 0) - dt; if (b.cool <= 0) { spawnGuest(false, { x: 70 + (b.out % 2) * 30, y: 86 }); b.out++; b.cool = .45; } }
+    else { b.stay -= dt; if (b.stay <= 0) { b.x += 260 * dt; if (b.x > 260) S.bus = null; } }
+  }
+  if (!S.closed && S.t >= P.dayLen) {
+    S.closed = true; S.sched = [];
+    S.guests.filter(g => g.state === 'arrive' || g.state === 'queue').forEach(g => { if (!g.claimed) leave(g, false); });
+  }
+  chefUpdate(dt);
+  S.staff.forEach(st => staffUpdate(st, dt));
+  S.guests.forEach(g => !g.dead && guestUpdate(g, dt));
+  S.couriers.forEach(c => !c.dead && courierUpdate(c, dt));
+  S.guests = S.guests.filter(g => !g.dead); S.couriers = S.couriers.filter(c => !c.dead);
+  S.floats.forEach(f => f.t -= dt); S.floats = S.floats.filter(f => f.t > 0);
+  if (S.popups[0]) { S.popups[0].t -= dt; if (S.popups[0].t <= 0) S.popups.shift(); }
+  if (S.chef.rush && S.chef.rush.flash > 0) S.chef.rush.flash -= dt;
+  if (S.chef.rush && !(S.chef.cur && S.chef.cur.type === 'rush')) S.chef.rush.on = false;
+  if (S.closed && !S.ended && !S.guests.some(g => g.state !== 'out') && !S.couriers.some(c => c.state !== 'out')) { S.ended = true; showEnd(); }
+  if (toastT > 0) { toastT -= dt; if (toastT <= 0) document.getElementById('toast').style.opacity = 0; }
+}
+let last = performance.now();
+function frame(now) {
+  const real = Math.min(0.05, (now - last) / 1000); last = now;
+  if (S && S.open && !S.ended && speed > 0) { const n = speed; for (let i = 0; i < n; i++) update(real); }
+  if (S) render();
+  requestAnimationFrame(frame);
+}
+
+// ---------------- overlays ----------------
+const ov = document.getElementById('ov');
+function showStart() {
+  ov.hidden = false;
+  const extra = DAY === 3 ? (LOC === 'country' ? 'A Flyers ad brings 2 guests, and a tour bus with 6 guests is on its way.' : 'An Office lunch deal brings 3 guests, and a delivery app sends couriers.') : 'Day 1 has no ads and no events. Just you, the bunnies and the door.';
+  ov.innerHTML = `<div class="card"><h2>${LOC === 'country' ? 'Countryside' : 'City'} · Day ${DAY}</h2><p>Bunnies seat and serve the tables on their rug. Tables with no staff are yours: click a guest to seat them, click their plate bubble to serve.</p><p>${extra}</p><button class="btn" id="go">Open the doors</button></div>`;
+  ov.querySelector('#go').onclick = () => { ov.hidden = true; S.open = true; last = performance.now(); };
+}
+function showEnd() {
+  ov.hidden = false;
+  ov.innerHTML = `<div class="card"><h2>Closed for the night</h2><div class="stats"><span>Guests served</span><span>${S.served}</span><span>Left unhappy</span><span>${S.unhappy}</span><span>Plates left over</span><span>${S.plates}</span><span>Cash from tonight</span><span>$${S.cash}</span></div><p style="font-size:13px;color:#7A5A40">How did it feel? Try changing the tuning numbers below, then play the day again.</p><button class="btn" id="again">Play this day again</button></div>`;
+  ov.querySelector('#again').onclick = () => newDay();
+}
+
+// ---------------- input ----------------
+svg.addEventListener('click', e => {
+  if (!S || !S.open || S.ended) return;
+  const n = e.target.closest('[data-click]'); if (!n) return;
+  const c = n.getAttribute('data-click');
+  if (c === 'stove') {
+    if (!rushTry()) enqueue({ type: 'rush', target: 'stove' });
+    return;
+  }
+  const id = +c.slice(1);
+  if (c[0] === 'g') {
+    const g = S.guests.find(x => x.id === id); if (!g) return;
+    if (g.state === 'queue' || g.state === 'arrive') { if (g.state === 'arrive') return toast('Wait until they reach the door'); if (g.claimed && g.claimed !== S.chef) return toast('A bunny is already on it'); enqueue({ type: 'seat', target: g }); }
+    else if (g.state === 'wait') { if (g.server && g.server !== S.chef) return toast('A bunny is already bringing a plate'); enqueue({ type: 'serve', target: g }); }
+  } else if (c[0] === 'c') {
+    const cc = S.couriers.find(x => x.id === id); if (cc && cc.state === 'wait') enqueue({ type: 'deliver', target: cc });
+  }
+});
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' && S && S.open && !S.ended && !['INPUT', 'BUTTON', 'SUMMARY'].includes(document.activeElement.tagName)) { e.preventDefault(); rushTry(); }
+});
+const press = (ids, on) => ids.forEach(i => document.getElementById(i).setAttribute('aria-pressed', i === on));
+document.getElementById('loc-country').onclick = () => { LOC = 'country'; press(['loc-country', 'loc-city'], 'loc-country'); newDay(); };
+document.getElementById('loc-city').onclick = () => { LOC = 'city'; press(['loc-country', 'loc-city'], 'loc-city'); newDay(); };
+document.getElementById('day-1').onclick = () => { DAY = 1; press(['day-1', 'day-3'], 'day-1'); newDay(); };
+document.getElementById('day-3').onclick = () => { DAY = 3; press(['day-1', 'day-3'], 'day-3'); newDay(); };
+['spd-0', 'spd-1', 'spd-2'].forEach((id, i) => document.getElementById(id).onclick = () => { speed = i; press(['spd-0', 'spd-1', 'spd-2'], id); });
+document.getElementById('restart').onclick = () => newDay();
+
+window.__rr = () => S;
+newDay();
+requestAnimationFrame(frame);
+})();
+</script>
