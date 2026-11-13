@@ -484,14 +484,14 @@ function render() {
     const seated = g.state === 'wait' || g.state === 'eat';
     const col = g.ad ? MC() : '#B8A99A';
     const key = [seated, g.angry, badgeFor(g)].join('|');
-    if (key !== g.key) { g.key = key; g.node.innerHTML = (seated ? '' : hl) + person({ plain: col, seated, angry: g.angry }) + badgeFor(g); }
+    if (key !== g.key) { g.key = key; g.node.innerHTML = (seated ? '' : hl + '<rect x="-22" y="-62" width="44" height="70" fill="transparent"/>') + person({ plain: col, seated, angry: g.angry }) + badgeFor(g); }
     g.node.setAttribute('transform', `translate(${g.x.toFixed(1)} ${g.y.toFixed(1)})`);
     // ring / bubble
     let r = '';
     if (g.state === 'queue' && !g.claimed) r = `<g transform="translate(${g.x} ${g.y - 70})">${ringSVG(g.pat / P.qPat)}</g>`;
     if (g.state === 'wait') {
       const f = g.server ? 1 : g.pat / P.sPat;
-      r = `<g transform="translate(${g.x + 26} ${g.y - 52})" class="click" data-click="g${g.id}"><circle r="17" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.5"/>${platePath(0, 1, .9)}<circle r="17" fill="none" stroke="${f < .34 ? '#E63946' : f < .6 ? '#F4A261' : '#52B788'}" stroke-width="3.5" stroke-dasharray="${(107 * f).toFixed(1)} 107" transform="rotate(-90)"/></g>`;
+      r = `<g transform="translate(${g.x + 26} ${g.y - 52})" class="click" data-click="g${g.id}"><circle r="17" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.5"/>${platePath(0, 1, .9)}<circle r="17" fill="none" stroke="${f < .34 ? '#E63946' : f < .6 ? '#F4A261' : '#52B788'}" stroke-width="3.5" stroke-dasharray="${(107 * f).toFixed(1)} 107" transform="rotate(-90)"/></g><rect class="click" data-click="g${g.id}" x="${g.x - 40}" y="${g.y - 72}" width="88" height="100" rx="14" fill="transparent"/>`;
     }
     if (g.state === 'eat') r = '';
     g.ring.innerHTML = r;
@@ -517,7 +517,7 @@ function render() {
     const key = 'c' + badgeFor(c);
     if (key !== c.key) { c.key = key; c.node.innerHTML = hl + person({ shirt: '#E63946', pants: '#3D405B', skin: SK[2], helmet: '#F4A261', bag: true }) + badgeFor(c); }
     c.node.setAttribute('transform', `translate(${c.x.toFixed(1)} ${c.y.toFixed(1)})`);
-    c.ring.innerHTML = c.state === 'wait' ? `<g transform="translate(${c.x} ${c.y - 70})">${ringSVG(c.server ? 1 : c.pat / P.cPat)}</g><g transform="translate(${c.x - 40} ${c.y - 22})" class="click" data-click="c${c.id}"><rect x="-16" y="-14" width="32" height="28" rx="8" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.4"/>${platePath(0, 2, .9)}</g>` : '';
+    c.ring.innerHTML = c.state === 'wait' ? `<g transform="translate(${c.x} ${c.y - 70})">${ringSVG(c.server ? 1 : c.pat / P.cPat)}</g><g transform="translate(${c.x - 40} ${c.y - 22})" class="click" data-click="c${c.id}"><rect x="-16" y="-14" width="32" height="28" rx="8" fill="#FFF7EC" stroke="${OUT}" stroke-width="1.4"/>${platePath(0, 2, .9)}</g><rect class="click" data-click="c${c.id}" x="${c.x - 62}" y="${c.y - 86}" width="84" height="94" rx="14" fill="transparent"/>` : '';
   });
   // depth sort walkers
   const kids = [...L.walk.children];
