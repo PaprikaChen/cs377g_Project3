@@ -95,7 +95,7 @@ details.controls summary{color:var(--muted);font-size:13px}
   <div class="stage" id="stage">
     <svg id="scene" viewBox="0 0 1352 600" role="img" aria-label="Restaurant during service"></svg>
     <div class="toast" id="toast" style="opacity:0"></div>
-    <div class="coach" id="coach" hidden><span class="step" id="coachStep"></span><p id="coachText"></p><div class="row"><button class="btn" id="coachNext" hidden>Next</button><button class="linkish" id="coachSkip">Skip tips</button></div></div>
+    <div class="coach" id="coach" hidden><span class="step" id="coachStep"></span><p id="coachText"></p><div class="row" id="coachRow"><button class="btn" id="coachNext" hidden>Next</button></div></div>
     <div class="overlay" id="ov"></div>
   </div>
 
@@ -113,7 +113,8 @@ details.controls summary{color:var(--muted);font-size:13px}
 // ---------------- tuning (placeholders) ----------------
 const PARAMS = [
   ['dayLen', 'Day length (s)', 60, 240, 5, 120],
-  ['first', 'Day 1: first guest arrives at (s)', 2, 30, 1, 6],
+  ['first', 'First guest arrives at (s)', 2, 30, 1, 6],
+  ['gap', 'Longest wait between walk-ins (s)', 3, 30, 1, 8],
   ['guests', 'Walk-in guests per day', 4, 30, 1, 14],
   ['staff', 'Staff (bunnies)', 0, 10, 1, -1],
   ['plates', 'Plates ready at opening', 0, 20, 1, 8],
@@ -148,7 +149,7 @@ const STOVE = { x: SC, y: SY + 118 }, PICK = { x: KX + 46, y: RY + 172 }, DROP =
 const DOOR_IN = { x: RX + 24, y: AYc + 10 }, EXIT = { x: 96, y: H + 50 }, SPAWN = { x: 96, y: H + 40 };
 
 let LOC = 'country', DAY = 1, speed = 1;
-const TUT_SEED = 67;
+const TUT_SEED = 14;
 function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 let RND = Math.random;
 const MC = () => (LOC === 'country' ? '#2546F0' : '#D61F69');
@@ -298,8 +299,16 @@ function newDay() {
   // and the first guest arrives early instead of after ~24 s of empty shop (S2).
   RND = DAY === 1 ? mulberry32(TUT_SEED) : Math.random;
   const sched = [], dl = P.dayLen;
+  // walk-ins keep the original busy middle of the day, but the quiet start is squeezed:
+  // the first guest comes at P.first, the rest of the morning is pulled earlier, and no early gap is longer than P.gap
   for (let i = 0; i < P.guests; i++) sched.push({ t: dl * 0.04 + dl * 0.8 * ((RND() + RND() + i / P.guests * 2) / 4), kind: 'g' });
-  if (DAY === 1 && sched.length) { sched.sort((a, b) => a.t - b.t); sched[0].t = Math.min(P.first, sched[0].t); }
+  sched.sort((a, b) => a.t - b.t);
+  if (sched.length > 1) {
+    const t0 = sched[0].t, tN = sched[sched.length - 1].t;
+    sched.forEach(e => { e.t = P.first + (e.t - t0) * (tN - P.first) / Math.max(1, tN - t0); });
+    const mid = sched[Math.floor(sched.length / 2)].t;
+    sched.forEach((e, i) => { if (i && e.t < mid) e.t = Math.min(e.t, sched[i - 1].t + P.gap); });
+  }
   if (DAY === 3) {
     if (LOC === 'country') {
       sched.push({ t: dl * 0.3, kind: 'ad', card: 'Flyers', n: 2 });
@@ -365,13 +374,15 @@ function startAction(a) {
   } else if (a.type === 'serve') {
     const g = a.target;
     if (g.state !== 'wait' || g.server) return done();
-    g.server = ch; ch.path = route(ch, PICK);
+    if (S.plates <= 0) { toast('No plates left. Click the stove to rush one.'); return done(); }
+    S.plates--; drawPlates(); g.server = ch; ch.path = route(ch, PICK);
   } else if (a.type === 'rush') {
     ch.path = route(ch, STOVE);
   } else if (a.type === 'deliver') {
     const c = a.target;
     if (c.state !== 'wait' || c.server) return done();
-    c.server = ch; ch.path = route(ch, PICK);
+    if (S.plates <= 0) { toast('No plates left. Click the stove to rush one.'); return done(); }
+    S.plates--; drawPlates(); c.server = ch; ch.path = route(ch, PICK);
   }
 }
 function done() { const ch = S.chef; ch.cur = null; const n = ch.queue.shift(); if (n) startAction(n); }
@@ -389,8 +400,7 @@ function chefUpdate(dt) {
   } else if (a.type === 'serve' || a.type === 'deliver') {
     const tgt = a.target;
     if (a.phase === 0) {
-      if (S.plates <= 0) { toast('No plates left. Click the stove to rush one.'); tgt.server = null; return done(); }
-      S.plates--; drawPlates(); ch.carry = true; a.phase = 1;
+      ch.carry = true; a.phase = 1;
       ch.path = route(ch, a.type === 'serve' ? tgt.table.stand : DROP);
     } else {
       ch.carry = false;
@@ -650,9 +660,9 @@ function tutCheck() {
   }
   // a guest the bunnies can't take
   if (!T.seen.door) {
-    const freeStaffed = tables.some(t => t.staffed && !t.guest && !t.reserved);
-    const g = !freeStaffed && S.guests.find(g => g.state === 'queue' && !g.claimed);
-    if (g) return tutFreeze('door', 'seat', { c: [g.x, g.y - 30, 46] }, [g.x + 10, g.y - 92], 'Bunnies are full. Click this guest.');
+    // a guest has been standing at the door for a few seconds and no bunny came for them
+    const g = S.guests.find(g => g.state === 'queue' && !g.claimed && P.qPat - g.pat >= 3);
+    if (g) return tutFreeze('door', 'seat', { c: [g.x, g.y - 30, 46] }, [g.x + 10, g.y - 92], 'Bunnies are busy. Click this guest.', false, g);
   }
   // that guest is seated and needs a plate
   if (T.seen.door && !T.seen.serve && T.g && T.g.state === 'wait' && !T.g.server && S.plates > 0) {
@@ -701,7 +711,7 @@ function tutCoach() {
   if (box.hidden) box.hidden = false;
   if (document.getElementById('coachText').textContent !== text) document.getElementById('coachText').textContent = text;
   document.getElementById('coachStep').textContent = step ? `${T.tour + 1} / ${T.steps.length}` : 'Your turn';
-  const nb = document.getElementById('coachNext'); nb.hidden = !step; if (step) nb.textContent = step.last ? 'Open the doors' : 'Next';
+  const nb = document.getElementById('coachNext'); nb.hidden = !step; document.getElementById('coachRow').hidden = !step; if (step) nb.textContent = step.last ? 'Open the doors' : 'Next';
   box.classList.toggle('below', !!below);
   box.style.left = Math.max(14, Math.min(86, x / W * 100)) + '%';
   box.style.top = Math.max(8, Math.min(96, y / H * 100)) + '%';
@@ -800,7 +810,6 @@ document.getElementById('day-1').onclick = () => { DAY = 1; press(['day-1', 'day
 document.getElementById('day-3').onclick = () => { DAY = 3; press(['day-1', 'day-3'], 'day-3'); newDay(); };
 ['spd-0', 'spd-1', 'spd-2'].forEach((id, i) => document.getElementById(id).onclick = () => { speed = i; press(['spd-0', 'spd-1', 'spd-2'], id); });
 document.getElementById('restart').onclick = () => newDay();
-document.getElementById('coachSkip').onclick = () => { const wasTour = S.tut.tour >= 0; S.tut.on = false; S.tut.freeze = null; S.tut.tour = -1; if (wasTour) openDoors(); };
 document.getElementById('coachNext').onclick = () => { if (S.tut.tour < 0) return; S.tut.tour++; if (S.tut.tour >= S.tut.steps.length) openDoors(); };
 
 window.__rr = () => S;
