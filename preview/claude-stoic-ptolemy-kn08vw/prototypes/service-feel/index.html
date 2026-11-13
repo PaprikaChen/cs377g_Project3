@@ -604,7 +604,7 @@ const TOUR = [
   { text: 'This is you, the chef.', spot: () => ({ c: [S.chef.x, S.chef.y - 50, 70] }), at: () => [S.chef.x, S.chef.y - 120] },
   { text: 'Bunnies seat and serve their rug.', spot: () => { const s = sections.find(s => s.on); return s ? { r: [s.x - 6, s.y - 6, s.w + 12, s.h + 12] } : null; }, at: () => { const s = sections.find(s => s.on); return s ? [s.x + s.w / 2, s.y + s.h + 4] : [W / 2, H / 2]; }, below: true },
   { text: 'No staff? Those tables are yours.', spot: () => { const s = sections.filter(s => !s.on).pop(); return s ? { r: [s.x - 6, s.y - 6, s.w + 12, s.h + 12] } : null; }, at: () => { const s = sections.filter(s => !s.on).pop(); return s ? [s.x + s.w / 2, s.y - 8] : [W / 2, H / 2]; } },
-  { text: 'Plates come from here.', spot: () => ({ r: [KX + 16, RY + 40, KR - KX - 32, SY + 92 - RY - 40] }), at: () => [SC, SY + 96], below: true, last: true }
+  { text: 'Out of food? Make a rush dish here.', spot: () => ({ r: [SXs - 12, SY - 12, 184, 102] }), at: () => [SC, SY + 96], below: true, last: true }
 ];
 function tutHint(key, x, y, text) {
   if (!S.tut.on || S.tut.seen[key]) return;
