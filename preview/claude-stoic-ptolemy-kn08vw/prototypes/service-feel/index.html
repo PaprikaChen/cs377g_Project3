@@ -783,7 +783,9 @@ function showEnd() {
 }
 
 // ---------------- input ----------------
-svg.addEventListener('click', e => {
+// pointerdown, not click: the bubbles and rings are redrawn every frame, and a click is lost when the element under the pointer is replaced between press and release
+svg.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
   if (!S || !S.open || S.ended) return;
   // During a tip, a click anywhere inside the highlighted circle counts as the action the tip asks for.
   const f = S.tut.freeze;
