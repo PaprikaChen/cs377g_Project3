@@ -785,6 +785,14 @@ function showEnd() {
 // ---------------- input ----------------
 svg.addEventListener('click', e => {
   if (!S || !S.open || S.ended) return;
+  // During a tip, a click anywhere inside the highlighted circle counts as the action the tip asks for.
+  const f = S.tut.freeze;
+  if (f) {
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const q = pt.matrixTransform(svg.getScreenCTM().inverse()), sp = f.spot;
+    const inside = sp.c ? Math.hypot(q.x - sp.c[0], q.y - sp.c[1]) <= sp.c[2] : (q.x >= sp.r[0] && q.x <= sp.r[0] + sp.r[2] && q.y >= sp.r[1] && q.y <= sp.r[1] + sp.r[3]);
+    if (inside) { enqueue({ type: f.wait, target: f.target }); return; }
+  }
   const n = e.target.closest('[data-click]'); if (!n) return;
   const c = n.getAttribute('data-click');
   if (c === 'stove') {
