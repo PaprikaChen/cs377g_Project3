@@ -427,6 +427,7 @@ function rushTry() {
   if (m >= z[0] && m <= z[1]) {
     r.step++; r.flash = .35; r.ok = true;
     if (r.step >= r.zones.length) {
+      if (ch.cur.practice) { S.plates++; drawPlates(); float(SC, SY - 14, '+1 plate (free)'); S.tut.practiced = true; ch.rush = null; ch.cur = null; return true; }
       S.plates++; S.rushed++; S.cash -= P.rushCost; drawPlates(); float(SC, SY - 14, '+1 plate  −$' + P.rushCost); tutAfterRush();
       ch.rush = null; ch.cur = null; const n = ch.queue.shift(); if (n) startAction(n);
     }
@@ -575,7 +576,7 @@ function render() {
   if (ch.cur && ch.cur.type === 'rush' && r && r.on) {
     const bx = KX + 22, by = SY + 138, bw = KR - KX - 44, tx = bx + 14, tw = bw - 28, ty = by + 46, th = 20;
     ui += `<rect x="${SXs - 6}" y="${SY - 6}" width="172" height="90" rx="13" fill="none" stroke="${MC()}" stroke-width="3"/>`;
-    ui += `<rect x="${bx}" y="${by}" width="${bw}" height="92" rx="14" fill="#FFF7EC" stroke="${OUT}" stroke-width="2"/><text x="${bx + 14}" y="${by + 22}" font-size="12" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">RUSH 1 PLATE · $${P.rushCost}</text><text x="${bx + bw - 14}" y="${by + 22}" text-anchor="end" font-size="11" font-weight="800" fill="#7A5A40" font-family="Nunito,sans-serif">one click</text>`;
+    ui += `<rect x="${bx}" y="${by}" width="${bw}" height="92" rx="14" fill="#FFF7EC" stroke="${OUT}" stroke-width="2"/><text x="${bx + 14}" y="${by + 22}" font-size="12" font-weight="900" fill="${OUT}" font-family="Nunito,sans-serif">RUSH 1 PLATE · ${ch.cur.practice ? 'FREE' : '$' + P.rushCost}</text><text x="${bx + bw - 14}" y="${by + 22}" text-anchor="end" font-size="11" font-weight="800" fill="#7A5A40" font-family="Nunito,sans-serif">one click</text>`;
     ui += `<rect x="${tx}" y="${ty}" width="${tw}" height="${th}" rx="10" fill="${r.flash > 0 && !r.ok ? '#FFD6D9' : '#E9DFD3'}" stroke="${OUT}" stroke-width="1.5"/>`;
     r.zones.forEach(([a, b], k) => { ui += `<rect x="${tx + tw * a}" y="${ty + 2}" width="${tw * (b - a)}" height="${th - 4}" rx="6" fill="${k < r.step ? '#2D6A4F' : k === r.step ? '#52B788' : '#B7DEC5'}"/>`; });
     const mx = tx + tw * marker();
@@ -624,7 +625,8 @@ const TOUR = [
   { text: 'This is you, the chef.', spot: () => ({ c: [S.chef.x, S.chef.y - 50, 70] }), at: () => [S.chef.x, S.chef.y - 120] },
   { text: 'Bunnies seat and serve their rug.', spot: () => { const s = sections.find(s => s.on); return s ? { r: [s.x - 6, s.y - 6, s.w + 12, s.h + 12] } : null; }, at: () => { const s = sections.find(s => s.on); return s ? [s.x + s.w / 2, s.y + s.h + 4] : [W / 2, H / 2]; }, below: true },
   { text: 'No staff? Those tables are yours.', spot: () => { const s = sections.filter(s => !s.on).pop(); return s ? { r: [s.x - 6, s.y - 6, s.w + 12, s.h + 12] } : null; }, at: () => { const s = sections.filter(s => !s.on).pop(); return s ? [s.x + s.w / 2, s.y - 8] : [W / 2, H / 2]; } },
-  { text: 'Out of food? Make a rush dish here.', spot: () => ({ r: [SXs - 12, SY - 12, 184, 102] }), at: () => [SC, SY + 96], below: true, last: true }
+  { text: 'Out of food? Make a rush dish here.', spot: () => ({ r: [SXs - 12, SY - 12, 184, 102] }), at: () => [SC, SY + 96], below: true },
+  { text: 'Try one now. This one is free!', done: 'Nice! That plate is yours.', practice: true, spot: () => ({ r: [KX + 16, SY - 12, KR - KX - 32, 250] }), at: () => [SC, SY - 20], last: true }
 ];
 // Day 3: new things only (ads and events). Countryside meets the tour bus, City meets couriers.
 const TOUR3C = [
@@ -710,11 +712,11 @@ function tutCoach() {
   document.querySelectorAll('.ev').forEach(n => n.classList.toggle('pulse', !!(step && step.hud)));
   if (!step && !f) { if (!box.hidden) box.hidden = true; return; }
   const [x, y] = step ? step.at() : f.at, below = step ? step.below : f.below;
-  const text = step ? step.text : f.text;
+  const text = step ? (step.practice && T.practiced ? step.done : step.text) : f.text;
   if (box.hidden) box.hidden = false;
   if (document.getElementById('coachText').textContent !== text) document.getElementById('coachText').textContent = text;
   document.getElementById('coachStep').textContent = step ? `${T.tour + 1} / ${T.steps.length}` : 'Your turn';
-  const nb = document.getElementById('coachNext'); nb.hidden = !step; document.getElementById('coachRow').hidden = !step; if (step) nb.textContent = step.last ? 'Open the doors' : 'Next';
+  const nb = document.getElementById('coachNext'); const showNext = !!step && (!step.practice || T.practiced); nb.hidden = !showNext; document.getElementById('coachRow').hidden = !showNext; if (step) nb.textContent = step.last ? 'Open the doors' : 'Next';
   box.classList.toggle('below', !!below);
   box.style.left = Math.max(14, Math.min(86, x / W * 100)) + '%';
   box.style.top = Math.max(8, Math.min(96, y / H * 100)) + '%';
@@ -756,6 +758,7 @@ function update(dt) {
 let last = performance.now();
 function frame(now) {
   const real = Math.min(0.05, (now - last) / 1000); last = now;
+  if (S && S.tut.tour >= 0 && S.chef.cur && S.chef.cur.practice) { S.mTime += real; if (S.chef.rush && S.chef.rush.flash > 0) S.chef.rush.flash -= real; }
   if (S && S.open && !S.ended && speed > 0 && !S.tut.freeze) { const n = speed; for (let i = 0; i < n; i++) { update(real); if (S.tut.freeze) break; } }
   if (S && S.tut.flashAd > 0 && !S.tut.freeze) S.tut.flashAd -= real;
   if (S && S.tut.hints.length) { S.tut.hints.forEach(h => h.t -= real); S.tut.hints = S.tut.hints.filter(h => h.t > 0); }
@@ -765,7 +768,7 @@ function frame(now) {
 
 // ---------------- overlays ----------------
 const ov = document.getElementById('ov');
-function openDoors() { ov.hidden = true; S.tut.tour = -1; S.open = true; last = performance.now(); }
+function openDoors() { ov.hidden = true; S.tut.tour = -1; if (S.chef.cur && S.chef.cur.practice) { S.chef.cur = null; S.chef.rush = null; } S.open = true; last = performance.now(); }
 function showStart() {
   ov.hidden = false;
   const extra = DAY === 3 ? (LOC === 'country' ? 'A Flyers ad brings 2 guests, and a tour bus with 6 guests is on its way.' : 'An Office lunch deal brings 3 guests, and a delivery app sends couriers.') : 'Day 1 has no ads and no events. Just you, the bunnies and the door.';
@@ -789,6 +792,7 @@ function showEnd() {
 // pointerdown, not click: the bubbles and rings are redrawn every frame, and a click is lost when the element under the pointer is replaced between press and release
 svg.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
+  if (S && S.tut.tour >= 0) { if (S.chef.cur && S.chef.cur.practice) rushTry(); return; }
   if (!S || !S.open || S.ended) return;
   // During a tip, a click anywhere inside the highlighted circle counts as the action the tip asks for.
   const f = S.tut.freeze;
@@ -814,7 +818,7 @@ svg.addEventListener('pointerdown', e => {
   }
 });
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space' && S && S.open && !S.ended && !['INPUT', 'BUTTON', 'SUMMARY'].includes(document.activeElement.tagName)) { e.preventDefault(); rushTry(); }
+  if (e.code === 'Space' && S && (S.open || (S.chef.cur && S.chef.cur.practice)) && !S.ended && !['INPUT', 'BUTTON', 'SUMMARY'].includes(document.activeElement.tagName)) { e.preventDefault(); rushTry(); }
 });
 const press = (ids, on) => ids.forEach(i => document.getElementById(i).setAttribute('aria-pressed', i === on));
 document.getElementById('loc-country').onclick = () => { LOC = 'country'; press(['loc-country', 'loc-city'], 'loc-country'); newDay(); };
@@ -823,7 +827,12 @@ document.getElementById('day-1').onclick = () => { DAY = 1; press(['day-1', 'day
 document.getElementById('day-3').onclick = () => { DAY = 3; press(['day-1', 'day-3'], 'day-3'); newDay(); };
 ['spd-0', 'spd-1', 'spd-2'].forEach((id, i) => document.getElementById(id).onclick = () => { speed = i; press(['spd-0', 'spd-1', 'spd-2'], id); });
 document.getElementById('restart').onclick = () => newDay();
-document.getElementById('coachNext').onclick = () => { if (S.tut.tour < 0) return; S.tut.tour++; if (S.tut.tour >= S.tut.steps.length) openDoors(); };
+document.getElementById('coachNext').onclick = () => {
+  if (S.tut.tour < 0) return;
+  S.tut.tour++;
+  if (S.tut.tour >= S.tut.steps.length) return openDoors();
+  if (S.tut.steps[S.tut.tour].practice) { S.chef.cur = { type: 'rush', target: 'stove', practice: true }; S.chef.rush = newRush(); S.chef.rush.on = true; }
+};
 
 window.__rr = () => S;
 newDay();
